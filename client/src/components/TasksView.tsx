@@ -27,6 +27,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
   const [newPriority, setNewPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [newDueDate, setNewDueDate] = useState('');
   const [subtasksInput, setSubtasksInput] = useState('');
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
   const handleToggleSubtask = async (task: Task, subtaskId: string) => {
     const updatedSubtasks = task.subtasks.map((st) =>
@@ -70,6 +72,23 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
     setNewTitle('');
     setNewDesc('');
     setSubtasksInput('');
+    onRefreshTasks();
+  };
+
+  const handleAddSubtask = async (task: Task) => {
+    if (!newSubtaskTitle.trim()) return;
+    const updatedSubtasks = [
+      ...task.subtasks,
+      { id: `st-${Date.now()}`, title: newSubtaskTitle.trim(), completed: false },
+    ];
+    await api.updateTask(task.id, { subtasks: updatedSubtasks });
+    setNewSubtaskTitle('');
+    onRefreshTasks();
+  };
+
+  const handleDeleteSubtask = async (task: Task, subtaskId: string) => {
+    const updatedSubtasks = task.subtasks.filter((st) => st.id !== subtaskId);
+    await api.updateTask(task.id, { subtasks: updatedSubtasks });
     onRefreshTasks();
   };
 
@@ -168,32 +187,68 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
               </div>
 
               {/* Subtasks Checklist */}
-              {t.subtasks.length > 0 && (
-                <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+              <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                  <button
+                    onClick={() => setExpandedTaskId(expandedTaskId === t.id ? null : t.id)}
+                    className="flex items-center gap-1 hover:text-slate-200 transition"
+                  >
+                    {expandedTaskId === t.id ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                     <span>Subtasks</span>
-                    <span>
-                      {completedCount} / {t.subtasks.length} completed
-                    </span>
-                  </div>
-                  {t.subtasks.map((st) => (
-                    <div
-                      key={st.id}
-                      onClick={() => handleToggleSubtask(t, st.id)}
-                      className="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 hover:bg-slate-950 cursor-pointer text-xs transition"
-                    >
+                  </button>
+                  <span>
+                    {completedCount} / {t.subtasks.length} completed
+                  </span>
+                </div>
+                {t.subtasks.map((st) => (
+                  <div
+                    key={st.id}
+                    className="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 hover:bg-slate-950 text-xs transition group"
+                  >
+                    <button onClick={() => handleToggleSubtask(t, st.id)} className="flex-shrink-0">
                       <CheckCircle2
-                        className={`w-3.5 h-3.5 flex-shrink-0 ${
+                        className={`w-3.5 h-3.5 ${
                           st.completed ? 'text-emerald-400' : 'text-slate-600'
                         }`}
                       />
-                      <span className={st.completed ? 'line-through text-slate-500' : 'text-slate-300'}>
-                        {st.title}
-                      </span>
-                    </div>
-                  ))}
+                    </button>
+                    <span className={`flex-1 ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                      {st.title}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteSubtask(t, st.id)}
+                      className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 transition"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                {/* Inline add subtask */}
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={expandedTaskId === t.id ? newSubtaskTitle : ''}
+                    onChange={(e) => {
+                      setExpandedTaskId(t.id);
+                      setNewSubtaskTitle(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddSubtask(t);
+                      }
+                    }}
+                    placeholder="+ Add subtask..."
+                    className="flex-1 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => handleAddSubtask(t)}
+                    className="p-1 rounded bg-slate-800 hover:bg-indigo-600 text-slate-400 hover:text-white transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              )}
+              </div>
 
               {/* Footer Meta */}
               <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-800/60">

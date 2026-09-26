@@ -276,6 +276,15 @@ class ApiClient {
     return await res.json();
   }
 
+  public async deleteCanvas(canvasId: string): Promise<boolean> {
+    const res = await fetch(`/api/canvas/${canvasId}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    const data = await res.json();
+    return data.success;
+  }
+
   // Geofences
   public async getGeofences(): Promise<Geofence[]> {
     const res = await fetch('/api/geofences', { headers: this.getHeaders() });

@@ -1,24 +1,51 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  PenTool,
   Square,
   Circle,
   Diamond,
+  Database,
+  StickyNote,
   ArrowRight,
   Type,
-  Eraser,
-  RotateCcw,
+  Trash2,
+  Plus,
+  Move,
   Sparkles,
-  Download,
   Save,
-  Layers,
+  Download,
+  Copy,
+  RefreshCw,
   CheckCircle2,
   Cpu,
-  Workflow,
+  Layers,
   Lightbulb,
+  Edit3,
+  Palette,
+  Workflow,
+  MousePointer,
+  RotateCcw,
 } from 'lucide-react';
 import { CanvasSchema } from '../types/index.js';
 import { api } from '../services/api.js';
+
+export interface DiagramNode {
+  id: string;
+  type: 'card' | 'circle' | 'diamond' | 'cylinder' | 'sticky' | 'text';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  title: string;
+  subtitle?: string;
+  color: string; // e.g. '#6366f1'
+}
+
+export interface DiagramConnection {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+}
 
 interface CanvasViewProps {
   canvases: CanvasSchema[];
@@ -26,340 +53,648 @@ interface CanvasViewProps {
   onRefreshTasks: () => void;
 }
 
+const COLOR_PRESETS = [
+  { name: 'Indigo', hex: '#6366f1', bg: 'bg-indigo-950/80', border: 'border-indigo-500', text: 'text-indigo-200' },
+  { name: 'Emerald', hex: '#10b981', bg: 'bg-emerald-950/80', border: 'border-emerald-500', text: 'text-emerald-200' },
+  { name: 'Sky', hex: '#0284c7', bg: 'bg-sky-950/80', border: 'border-sky-500', text: 'text-sky-200' },
+  { name: 'Amber', hex: '#f59e0b', bg: 'bg-amber-950/80', border: 'border-amber-500', text: 'text-amber-200' },
+  { name: 'Rose', hex: '#e11d48', bg: 'bg-rose-950/80', border: 'border-rose-500', text: 'text-rose-200' },
+  { name: 'Purple', hex: '#9333ea', bg: 'bg-purple-950/80', border: 'border-purple-500', text: 'text-purple-200' },
+  { name: 'Slate', hex: '#475569', bg: 'bg-slate-900/90', border: 'border-slate-600', text: 'text-slate-200' },
+];
+
 export const CanvasView: React.FC<CanvasViewProps> = ({ canvases, onRefreshCanvases, onRefreshTasks }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [activeTool, setActiveTool] = useState<'pen' | 'rect' | 'circle' | 'diamond' | 'arrow' | 'text' | 'eraser'>('pen');
-  const [strokeColor, setStrokeColor] = useState('#818cf8');
-  const [lineWidth, setLineWidth] = useState(3);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [canvasTitle, setCanvasTitle] = useState('OmniFlow Architecture Schema');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [selectedCanvas, setSelectedCanvas] = useState<CanvasSchema | null>(canvases[0] || null);
+  const [boardTitle, setBoardTitle] = useState('OmniFlow Architecture Schema');
+  
+  // Diagram Objects State
+  const [nodes, setNodes] = useState<DiagramNode[]>([]);
+  const [connections, setConnections] = useState<DiagramConnection[]>([]);
+  
+  // Selection & Manipulation State
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [connectingFromId, setConnectingFromId] = useState<string | null>(null);
+  
+  // AI Vision Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(canvases[0]?.analysis || null);
-  const [selectedCanvas, setSelectedCanvas] = useState<CanvasSchema | null>(canvases[0] || null);
 
+  // Initialize Board with Template or Loaded Canvas
   useEffect(() => {
-    initCanvas();
-  }, []);
+    if (selectedCanvas && selectedCanvas.elementsJson) {
+      try {
+        const parsed = typeof selectedCanvas.elementsJson === 'string' ? JSON.parse(selectedCanvas.elementsJson) : selectedCanvas.elementsJson;
+        if (parsed.nodes && Array.isArray(parsed.nodes)) {
+          setNodes(parsed.nodes);
+          setConnections(parsed.connections || []);
+          setBoardTitle(selectedCanvas.title);
+          setAnalysisResult(selectedCanvas.analysis || null);
+          return;
+        }
+      } catch (e) {}
+    }
+    // Default initial template: OmniFlow Multi-Tenant Architecture
+    loadTemplate('architecture');
+  }, [selectedCanvas]);
 
-  const initCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const loadTemplate = (templateType: 'architecture' | 'workflow' | 'brainstorm' | 'blank') => {
+    setSelectedNodeId(null);
+    setConnectingFromId(null);
 
-    // Dark grid background
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw subtle grid dots
-    ctx.fillStyle = '#1e293b';
-    for (let x = 20; x < canvas.width; x += 30) {
-      for (let y = 20; y < canvas.height; y += 30) {
-        ctx.fillRect(x, y, 2, 2);
-      }
+    if (templateType === 'blank') {
+      setNodes([]);
+      setConnections([]);
+      setBoardTitle('New Blank Canvas');
+      setAnalysisResult(null);
+      return;
     }
 
-    // Draw initial sample architecture boxes for demo
-    drawArchitectureTemplate(ctx);
+    if (templateType === 'architecture') {
+      setBoardTitle('OmniFlow Multi-Tenant Architecture');
+      setNodes([
+        { id: 'n1', type: 'card', x: 50, y: 80, width: 200, height: 90, title: 'Audio Ingestion & Diarizer', subtitle: 'Live Multi-Speaker Speech Pipeline', color: '#6366f1' },
+        { id: 'n2', type: 'card', x: 340, y: 70, width: 220, height: 110, title: 'Azure OpenAI & Astra Cognitive Core', subtitle: 'Actionable Plans, Rationale & Tasks', color: '#9333ea' },
+        { id: 'n3', type: 'diamond', x: 650, y: 70, width: 140, height: 110, title: 'Commitment Ledger', subtitle: 'Human-in-Loop Review', color: '#0284c7' },
+        { id: 'n4', type: 'card', x: 630, y: 260, width: 200, height: 90, title: '2-Way Calendar Sync', subtitle: 'Google & Microsoft Graph API', color: '#10b981' },
+        { id: 'n5', type: 'cylinder', x: 350, y: 260, width: 200, height: 90, title: 'Azure Cosmos DB', subtitle: 'Zero-Bleed Tenant Partitions', color: '#0284c7' },
+        { id: 'n6', type: 'circle', x: 60, y: 260, width: 180, height: 90, title: 'Mobile Geofence Service', subtitle: 'Spatial Proximity Radar', color: '#f59e0b' },
+      ]);
+      setConnections([
+        { id: 'c1', from: 'n1', to: 'n2', label: 'Audio Segments' },
+        { id: 'c2', from: 'n2', to: 'n3', label: 'Proposals' },
+        { id: 'c3', from: 'n3', to: 'n4', label: 'Approved Events' },
+        { id: 'c4', from: 'n2', to: 'n5', label: 'Store State' },
+        { id: 'c5', from: 'n6', to: 'n2', label: 'Spatial Triggers' },
+      ]);
+      return;
+    }
+
+    if (templateType === 'workflow') {
+      setBoardTitle('Executive Decision & Calendar Workflow');
+      setNodes([
+        { id: 'w1', type: 'card', x: 60, y: 120, width: 180, height: 80, title: 'Note / Meeting Capture', subtitle: 'Voice or Typed Memo', color: '#6366f1' },
+        { id: 'w2', type: 'card', x: 300, y: 120, width: 190, height: 80, title: 'AI Extraction Engine', subtitle: 'Derive Action Items', color: '#9333ea' },
+        { id: 'w3', type: 'diamond', x: 550, y: 105, width: 130, height: 110, title: 'Approval Check', subtitle: 'Approved by User?', color: '#f59e0b' },
+        { id: 'w4', type: 'card', x: 750, y: 120, width: 180, height: 80, title: 'Booked on Calendar', subtitle: 'Google / Outlook Sync', color: '#10b981' },
+      ]);
+      setConnections([
+        { id: 'wc1', from: 'w1', to: 'w2', label: 'Input' },
+        { id: 'wc2', from: 'w2', to: 'w3', label: 'Propose' },
+        { id: 'wc3', from: 'w3', to: 'w4', label: 'Yes' },
+      ]);
+      return;
+    }
+
+    if (templateType === 'brainstorm') {
+      setBoardTitle('Sprint Planning & Product Brainstorm');
+      setNodes([
+        { id: 'b1', type: 'sticky', x: 80, y: 80, width: 170, height: 140, title: '💡 Strategic Idea', subtitle: 'Ambient audio companion for all client meetings', color: '#f59e0b' },
+        { id: 'b2', type: 'sticky', x: 290, y: 80, width: 170, height: 140, title: '🎯 Q4 Objective', subtitle: '99.99% enterprise SLA guarantee with Byron', color: '#10b981' },
+        { id: 'b3', type: 'sticky', x: 500, y: 80, width: 170, height: 140, title: '⚠️ Architecture Risk', subtitle: 'Avoid latency spikes during live diarization', color: '#e11d48' },
+        { id: 'b4', type: 'sticky', x: 710, y: 80, width: 170, height: 140, title: '✅ Key Deliverable', subtitle: 'Bi-directional sync connectors verified', color: '#0284c7' },
+      ]);
+      setConnections([]);
+      return;
+    }
   };
 
-  const drawArchitectureTemplate = (ctx: CanvasRenderingContext2D) => {
-    // Service Box 1
-    ctx.strokeStyle = '#6366f1';
-    ctx.lineWidth = 2;
-    ctx.fillStyle = '#1e1b4b';
-    ctx.fillRect(50, 60, 180, 70);
-    ctx.strokeRect(50, 60, 180, 70);
-
-    ctx.fillStyle = '#e0e7ff';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Audio Ingestion Engine', 65, 95);
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '10px sans-serif';
-    ctx.fillText('Live Multi-Speaker Diarizer', 65, 112);
-
-    // Arrow to Cognitive Core
-    ctx.strokeStyle = '#a855f7';
-    ctx.beginPath();
-    ctx.moveTo(230, 95);
-    ctx.lineTo(310, 95);
-    ctx.stroke();
-
-    // Box 2: Azure AI Cognitive Core
-    ctx.fillStyle = '#3b0764';
-    ctx.fillRect(310, 50, 200, 90);
-    ctx.strokeStyle = '#c084fc';
-    ctx.strokeRect(310, 50, 200, 90);
-
-    ctx.fillStyle = '#f3e8ff';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillText('Azure OpenAI Cognitive Core', 325, 85);
-    ctx.fillStyle = '#d8b4fe';
-    ctx.font = '10px sans-serif';
-    ctx.fillText('Actionable Plans & Rationale', 325, 105);
-    ctx.fillText('Vision Analysis & Summaries', 325, 120);
-
-    // Arrow to Commitment Ledger
-    ctx.strokeStyle = '#38bdf8';
-    ctx.beginPath();
-    ctx.moveTo(510, 95);
-    ctx.lineTo(590, 95);
-    ctx.stroke();
-
-    // Box 3: Commitment Ledger & Approval
-    ctx.fillStyle = '#082f49';
-    ctx.fillRect(590, 60, 190, 70);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.strokeRect(590, 60, 190, 70);
-
-    ctx.fillStyle = '#e0f2fe';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Commitment Ledger', 605, 95);
-    ctx.fillStyle = '#7dd3fc';
-    ctx.font = '10px sans-serif';
-    ctx.fillText('Human-in-the-Loop Review', 605, 112);
-
-    // Arrow down to Two-Way Sync
-    ctx.strokeStyle = '#10b981';
-    ctx.beginPath();
-    ctx.moveTo(685, 130);
-    ctx.lineTo(685, 200);
-    ctx.stroke();
-
-    // Box 4: Calendar Sync Connector
-    ctx.fillStyle = '#064e3b';
-    ctx.fillRect(590, 200, 190, 70);
-    ctx.strokeStyle = '#34d399';
-    ctx.strokeRect(590, 200, 190, 70);
-
-    ctx.fillStyle = '#ecfdf5';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('2-Way Sync Engine', 615, 235);
-    ctx.fillStyle = '#a7f3d0';
-    ctx.font = '10px sans-serif';
-    ctx.fillText('Google Cal & MS Outlook', 615, 252);
+  // Add new shape to canvas
+  const handleAddShape = (type: DiagramNode['type']) => {
+    const id = `node-${Date.now()}`;
+    const x = 120 + Math.random() * 200;
+    const y = 100 + Math.random() * 150;
+    const newNode: DiagramNode = {
+      id,
+      type,
+      x,
+      y,
+      width: type === 'sticky' ? 160 : type === 'diamond' ? 130 : 190,
+      height: type === 'sticky' ? 130 : type === 'diamond' ? 110 : 85,
+      title: type === 'sticky' ? 'New Note' : type === 'diamond' ? 'Decision Point' : type === 'cylinder' ? 'Database Node' : 'Service Component',
+      subtitle: type === 'sticky' ? 'Write idea here...' : 'Description & role',
+      color: type === 'sticky' ? '#f59e0b' : '#6366f1',
+    };
+    setNodes((prev) => [...prev, newNode]);
+    setSelectedNodeId(id);
   };
 
-  // Drawing event handlers
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  // Dragging Nodes
+  const handleMouseDownNode = (e: React.MouseEvent, node: DiagramNode) => {
+    e.stopPropagation();
+    if (connectingFromId) {
+      if (connectingFromId !== node.id) {
+        // Create connection
+        setConnections((prev) => [
+          ...prev,
+          { id: `c-${Date.now()}`, from: connectingFromId, to: node.id, label: 'Flow' },
+        ]);
+      }
+      setConnectingFromId(null);
+      return;
+    }
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    setIsDrawing(true);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.strokeStyle = activeTool === 'eraser' ? '#0f172a' : strokeColor;
-    ctx.lineWidth = activeTool === 'eraser' ? 24 : lineWidth;
-    ctx.lineCap = 'round';
+    setSelectedNodeId(node.id);
+    setIsDragging(true);
+    setDragOffset({
+      x: e.clientX - node.x,
+      y: e.clientY - node.y,
+    });
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    ctx.lineTo(x, y);
-    ctx.stroke();
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && selectedNodeId) {
+      const newX = Math.max(20, Math.min(1200, e.clientX - dragOffset.x));
+      const newY = Math.max(20, Math.min(800, e.clientY - dragOffset.y));
+      setNodes((prev) =>
+        prev.map((n) => (n.id === selectedNodeId ? { ...n, x: newX, y: newY } : n))
+      );
+    }
   };
 
-  const stopDrawing = () => {
-    setIsDrawing(false);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsResizing(false);
   };
 
-  const clearCanvas = () => {
-    initCanvas();
+  // Node Edits
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+
+  const updateSelectedNode = (updates: Partial<DiagramNode>) => {
+    if (!selectedNodeId) return;
+    setNodes((prev) =>
+      prev.map((n) => (n.id === selectedNodeId ? { ...n, ...updates } : n))
+    );
   };
 
-  // AI Vision Analysis Trigger
-  const handleAnalyzeCanvas = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const snapshotBase64 = canvas.toDataURL('image/png');
+  const handleDeleteSelected = () => {
+    if (!selectedNodeId) return;
+    setNodes((prev) => prev.filter((n) => n.id !== selectedNodeId));
+    setConnections((prev) => prev.filter((c) => c.from !== selectedNodeId && c.to !== selectedNodeId));
+    setSelectedNodeId(null);
+  };
 
-    setIsAnalyzing(true);
+  const handleDuplicateSelected = () => {
+    if (!selectedNode) return;
+    const clone: DiagramNode = {
+      ...selectedNode,
+      id: `node-${Date.now()}`,
+      x: selectedNode.x + 30,
+      y: selectedNode.y + 30,
+      title: `${selectedNode.title} (Copy)`,
+    };
+    setNodes((prev) => [...prev, clone]);
+    setSelectedNodeId(clone.id);
+  };
+
+  // Save Canvas to Database
+  const handleSaveCanvas = async () => {
     try {
-      // Save canvas first
       const saved = await api.saveCanvas({
         id: selectedCanvas?.id,
-        title: canvasTitle,
-        elementsJson: { nodesCount: 4, type: 'System Architecture Schema' },
-        snapshotBase64,
+        title: boardTitle,
+        elementsJson: { nodes, connections },
+      });
+      setSelectedCanvas(saved);
+      onRefreshCanvases();
+      alert(`Visual Board "${boardTitle}" saved successfully!`);
+    } catch (err: any) {
+      alert('Save failed: ' + err.message);
+    }
+  };
+
+  // Delete Board
+  const handleDeleteBoard = async () => {
+    if (!selectedCanvas) return;
+    if (!confirm(`Delete visual board "${selectedCanvas.title}"?`)) return;
+    try {
+      await api.deleteCanvas(selectedCanvas.id);
+      setSelectedCanvas(null);
+      onRefreshCanvases();
+      loadTemplate('blank');
+    } catch (err: any) {
+      alert('Failed to delete canvas: ' + err.message);
+    }
+  };
+
+  // AI Vision & System Architecture Analysis
+  const handleRunAIAnalysis = async () => {
+    setIsAnalyzing(true);
+    try {
+      // Save state first
+      const saved = await api.saveCanvas({
+        id: selectedCanvas?.id,
+        title: boardTitle,
+        elementsJson: { nodes, connections },
       });
 
-      // Run AI Vision
-      const res = await api.analyzeCanvas(saved.id, snapshotBase64);
+      const res = await api.analyzeCanvas(saved.id);
       setAnalysisResult(res.analysis);
+      setSelectedCanvas(res.canvas);
       onRefreshCanvases();
       onRefreshTasks();
-      alert('AI Vision analysis complete! Components extracted and actionable engineering tasks created.');
+      alert('Astra AI Vision Architecture Review complete! System components extracted and action items converted into Tasks.');
     } catch (err: any) {
-      alert('Analysis error: ' + err.message);
+      alert('AI Analysis error: ' + err.message);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  // Helper to draw SVG connector paths
+  const getNodeCenter = (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return { x: 0, y: 0 };
+    return {
+      x: node.x + node.width / 2,
+      y: node.y + node.height / 2,
+    };
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Top Controls Toolbar */}
-      <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
-        {/* Title Input */}
-        <div className="flex items-center gap-2">
-          <Workflow className="w-5 h-5 text-indigo-400" />
-          <input
-            type="text"
-            value={canvasTitle}
-            onChange={(e) => setCanvasTitle(e.target.value)}
-            className="bg-transparent font-bold text-base text-white focus:outline-none border-b border-transparent focus:border-indigo-500"
-          />
-        </div>
-
-        {/* Tools Palette */}
-        <div className="flex items-center gap-1 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-          <button
-            onClick={() => setActiveTool('pen')}
-            className={`p-2 rounded-lg transition ${activeTool === 'pen' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Pen"
-          >
-            <PenTool className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTool('rect')}
-            className={`p-2 rounded-lg transition ${activeTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Service Box"
-          >
-            <Square className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTool('circle')}
-            className={`p-2 rounded-lg transition ${activeTool === 'circle' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Database Node"
-          >
-            <Circle className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTool('diamond')}
-            className={`p-2 rounded-lg transition ${activeTool === 'diamond' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Decision Point"
-          >
-            <Diamond className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTool('eraser')}
-            className={`p-2 rounded-lg transition ${activeTool === 'eraser' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Eraser"
-          >
-            <Eraser className="w-4 h-4" />
-          </button>
-          <button
-            onClick={clearCanvas}
-            className="p-2 rounded-lg text-slate-400 hover:text-rose-400 transition"
-            title="Reset Canvas"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Color Palette */}
-        <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-1.5 rounded-xl border border-slate-800">
-          {['#818cf8', '#34d399', '#f59e0b', '#f43f5e', '#38bdf8', '#e2e8f0'].map((color) => (
-            <button
-              key={color}
-              onClick={() => setStrokeColor(color)}
-              className={`w-5 h-5 rounded-full transition ${strokeColor === color ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'}`}
-              style={{ backgroundColor: color }}
+    <div className="space-y-6" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
+      {/* 🎨 Top Miro-Style Action Toolbar */}
+      <div className="rounded-3xl bg-slate-900/90 border border-slate-800 p-4 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+        {/* Title & Board Selector */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+            <Workflow className="w-5 h-5" />
+          </div>
+          <div>
+            <input
+              type="text"
+              value={boardTitle}
+              onChange={(e) => setBoardTitle(e.target.value)}
+              className="bg-transparent font-extrabold text-base text-white focus:outline-none border-b border-transparent focus:border-indigo-500 max-w-xs"
+              placeholder="Board Title..."
             />
-          ))}
+            <p className="text-[11px] text-slate-400">Miro-Style Interactive Diagram & Architecture Builder</p>
+          </div>
         </div>
 
-        {/* AI Vision Analysis Button */}
-        <button
-          onClick={handleAnalyzeCanvas}
-          disabled={isAnalyzing}
-          className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-purple-600/30 transition disabled:opacity-50"
-        >
-          <Sparkles className="w-4 h-4 text-amber-300" />
-          <span>{isAnalyzing ? 'Vision Analyzing...' : 'Analyze with AI Vision'}</span>
-        </button>
+        {/* Templates Dropdown */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Template:</span>
+          <select
+            onChange={(e) => loadTemplate(e.target.value as any)}
+            className="bg-slate-950 border border-slate-800 text-xs text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-medium"
+            defaultValue="architecture"
+          >
+            <option value="architecture">OmniFlow Architecture</option>
+            <option value="workflow">Decision Workflow</option>
+            <option value="brainstorm">Sticky Brainstorm</option>
+            <option value="blank">Blank Canvas</option>
+          </select>
+        </div>
+
+        {/* Shape Palette Buttons */}
+        <div className="flex items-center gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+          <button
+            onClick={() => handleAddShape('card')}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+            title="Add Service Box"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Box</span>
+          </button>
+          <button
+            onClick={() => handleAddShape('diamond')}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+            title="Add Decision Node"
+          >
+            <Diamond className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Decision</span>
+          </button>
+          <button
+            onClick={() => handleAddShape('cylinder')}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+            title="Add Database"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">DB</span>
+          </button>
+          <button
+            onClick={() => handleAddShape('sticky')}
+            className="px-2.5 py-1.5 rounded-xl bg-amber-950/70 border border-amber-800/60 hover:bg-amber-600 text-amber-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+            title="Add Sticky Note"
+          >
+            <StickyNote className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sticky</span>
+          </button>
+          <button
+            onClick={() => handleAddShape('circle')}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+            title="Add Circle Node"
+          >
+            <Circle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Circle</span>
+          </button>
+        </div>
+
+        {/* Action Buttons: Save & AI Analysis */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSaveCanvas}
+            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950 transition"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>Save</span>
+          </button>
+          <button
+            onClick={handleRunAIAnalysis}
+            disabled={isAnalyzing}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-900/40 transition disabled:opacity-50"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>{isAnalyzing ? 'Analyzing Schema...' : 'Astra AI Review'}</span>
+          </button>
+          {selectedCanvas && (
+            <button
+              onClick={handleDeleteBoard}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition"
+              title="Delete Visual Board"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Main Drawing Canvas Area */}
-      <div className="rounded-2xl bg-slate-950 border border-slate-800 p-2 shadow-2xl overflow-hidden flex justify-center items-center">
-        <canvas
-          ref={canvasRef}
-          width={900}
-          height={420}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          className="rounded-xl cursor-crosshair max-w-full h-auto shadow-inner"
-        />
+      {/* Saved Canvases Bar */}
+      {canvases.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+          <span className="text-slate-400 font-semibold px-1 text-[11px] whitespace-nowrap">Saved Boards:</span>
+          {canvases.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedCanvas(c)}
+              className={`px-3 py-1.5 rounded-xl font-medium whitespace-nowrap border transition ${
+                selectedCanvas?.id === c.id
+                  ? 'bg-indigo-950 border-indigo-500 text-indigo-300 shadow-sm'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+              }`}
+            >
+              {c.title}
+            </button>
+          ))}
+          <button
+            onClick={() => loadTemplate('blank')}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" /> New
+          </button>
+        </div>
+      )}
+
+      {/* Selected Node Quick Format Toolbar */}
+      {selectedNode && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-900/80 rounded-2xl border border-indigo-900/40 text-xs">
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-slate-300">Selected:</span>
+            <input
+              type="text"
+              value={selectedNode.title}
+              onChange={(e) => updateSelectedNode({ title: e.target.value })}
+              className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-medium focus:outline-none focus:border-indigo-500"
+              placeholder="Title..."
+            />
+            <input
+              type="text"
+              value={selectedNode.subtitle || ''}
+              onChange={(e) => updateSelectedNode({ subtitle: e.target.value })}
+              className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+              placeholder="Subtitle / Description..."
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Color Presets */}
+            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+              {COLOR_PRESETS.map((col) => (
+                <button
+                  key={col.hex}
+                  onClick={() => updateSelectedNode({ color: col.hex })}
+                  className={`w-4 h-4 rounded-full transition ${selectedNode.color === col.hex ? 'ring-2 ring-white scale-110' : 'opacity-70 hover:opacity-100'}`}
+                  style={{ backgroundColor: col.hex }}
+                  title={col.name}
+                />
+              ))}
+            </div>
+
+            {/* Connect to Another Node */}
+            <button
+              onClick={() => setConnectingFromId(connectingFromId ? null : selectedNode.id)}
+              className={`px-3 py-1 rounded-lg font-semibold text-xs transition border flex items-center gap-1 ${
+                connectingFromId === selectedNode.id
+                  ? 'bg-amber-500 text-black border-amber-400'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+              }`}
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>{connectingFromId === selectedNode.id ? 'Click target node...' : 'Connect to'}</span>
+            </button>
+
+            {/* Duplicate */}
+            <button
+              onClick={handleDuplicateSelected}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+              title="Duplicate Element"
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Delete */}
+            <button
+              onClick={handleDeleteSelected}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition"
+              title="Delete Element"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 📐 Main Interactive Whiteboard Canvas Area */}
+      <div
+        ref={containerRef}
+        onClick={() => setSelectedNodeId(null)}
+        className="relative w-full h-[580px] bg-slate-950 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl select-none cursor-default"
+        style={{
+          backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+        }}
+      >
+        {/* SVG Connectors Layer */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <polygon points="0 0, 7 3, 0 6" fill="#818cf8" />
+            </marker>
+          </defs>
+          {connections.map((c) => {
+            const start = getNodeCenter(c.from);
+            const end = getNodeCenter(c.to);
+            if (!start || !end) return null;
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2;
+
+            return (
+              <g key={c.id}>
+                <line
+                  x1={start.x}
+                  y1={start.y}
+                  x2={end.x}
+                  y2={end.y}
+                  stroke="#818cf8"
+                  strokeWidth="2"
+                  strokeDasharray="4 2"
+                  markerEnd="url(#arrowhead)"
+                />
+                {c.label && (
+                  <text
+                    x={midX}
+                    y={midY - 8}
+                    fill="#c7d2fe"
+                    fontSize="10"
+                    textAnchor="middle"
+                    className="font-mono bg-slate-900"
+                  >
+                    {c.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Diagram Nodes Layer */}
+        {nodes.map((node) => {
+          const isSelected = selectedNodeId === node.id;
+          const isTargeting = connectingFromId && connectingFromId !== node.id;
+
+          return (
+            <div
+              key={node.id}
+              onMouseDown={(e) => handleMouseDownNode(e, node)}
+              style={{
+                left: `${node.x}px`,
+                top: `${node.y}px`,
+                width: `${node.width}px`,
+                height: `${node.height}px`,
+                borderColor: isSelected ? '#ffffff' : node.color,
+              }}
+              className={`absolute z-20 cursor-move rounded-2xl transition-shadow p-3.5 flex flex-col justify-between border-2 shadow-xl backdrop-blur-md ${
+                node.type === 'sticky'
+                  ? 'bg-amber-950/90 text-amber-100'
+                  : node.type === 'diamond'
+                  ? 'bg-purple-950/80 text-purple-100 rotate-0'
+                  : node.type === 'cylinder'
+                  ? 'bg-cyan-950/80 text-cyan-100'
+                  : 'bg-slate-900/90 text-slate-100'
+              } ${isSelected ? 'ring-4 ring-indigo-500/50 shadow-2xl scale-102' : 'hover:border-slate-400'} ${
+                isTargeting ? 'ring-2 ring-amber-400 animate-pulse cursor-pointer' : ''
+              }`}
+            >
+              {/* Node Header */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/40"
+                    style={{ color: node.color }}
+                  >
+                    {node.type}
+                  </span>
+                  <Move className="w-3 h-3 text-slate-500 opacity-50" />
+                </div>
+                <h4 className="font-bold text-xs mt-1.5 leading-snug line-clamp-2">{node.title}</h4>
+              </div>
+
+              {/* Node Subtitle */}
+              {node.subtitle && (
+                <p className="text-[10px] text-slate-400 mt-1 line-clamp-2 leading-relaxed font-sans">
+                  {node.subtitle}
+                </p>
+              )}
+
+              {/* Resize Handle at bottom right */}
+              {isSelected && (
+                <div
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setIsResizing(true);
+                  }}
+                  className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-br-lg bg-white/70 cursor-se-resize"
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {/* Empty Canvas Notice */}
+        {nodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+            <Workflow className="w-12 h-12 stroke-1 mb-2 text-slate-600" />
+            <p className="text-sm font-semibold text-slate-400">Blank Canvas</p>
+            <p className="text-xs text-slate-500 mt-0.5">Click any shape button above or pick a template to start building.</p>
+          </div>
+        )}
       </div>
 
-      {/* AI Vision Structured Breakdown & Output */}
+      {/* 🧠 Astra AI Vision & Systems Architecture Synthesis Card */}
       {analysisResult && (
-        <div className="rounded-2xl bg-slate-900/80 border border-indigo-900/40 p-6 shadow-xl space-y-5">
+        <div className="rounded-3xl bg-slate-900/90 border border-indigo-900/40 p-6 shadow-2xl space-y-5">
           <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-                <Cpu className="w-4 h-4" />
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                <Cpu className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-sm text-slate-100">AI Vision Architecture Extraction</h3>
-                <p className="text-[11px] text-slate-400">Structured interpretation extracted directly from your visual sketch</p>
+                <h3 className="font-extrabold text-sm text-slate-100">Astra AI Architecture & Schema Synthesis</h3>
+                <p className="text-[11px] text-slate-400">Real-time structured extraction of diagram components, data flows & action items</p>
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-mono">
-              GPT-4o Vision Verified
+            <span className="px-3 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-mono font-bold">
+              Cognitive Vision Verified
             </span>
           </div>
 
-          <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
+          <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/70 p-4 rounded-2xl border border-slate-800/80">
             {analysisResult.summary}
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Architectural Modules */}
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-indigo-400" />
                 Detected Modules ({analysisResult.architectureComponents?.length || 0})
               </h4>
               <div className="space-y-2">
                 {analysisResult.architectureComponents?.map((comp: any, idx: number) => (
-                  <div key={idx} className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 text-xs space-y-0.5">
-                    <p className="font-semibold text-slate-200">{comp.name}</p>
+                  <div key={idx} className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs space-y-1">
+                    <p className="font-bold text-slate-200">{comp.name}</p>
                     <p className="text-[11px] text-indigo-300 font-mono">{comp.type}</p>
-                    <p className="text-[11px] text-slate-400 leading-snug">{comp.description}</p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">{comp.description}</p>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Action Items Created */}
-            <div className="space-y-2">
+            {/* Synthesized Action Items */}
+            <div className="space-y-2.5">
               <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                Synthesized Action Items
+                Converted Execution Tasks ({analysisResult.actionItems?.length || 0})
               </h4>
               <div className="space-y-2">
                 {analysisResult.actionItems?.map((act: string, idx: number) => (
-                  <div key={idx} className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 text-xs flex items-start gap-2">
+                  <div key={idx} className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                    <span className="text-slate-300">{act}</span>
+                    <span className="text-slate-300 leading-snug">{act}</span>
                   </div>
                 ))}
               </div>
@@ -368,11 +703,14 @@ export const CanvasView: React.FC<CanvasViewProps> = ({ canvases, onRefreshCanva
               {analysisResult.suggestions && (
                 <div className="pt-2">
                   <h4 className="font-bold text-xs text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                    <Lightbulb className="w-3.5 h-3.5" /> Architecture Suggestions
+                    <Lightbulb className="w-3.5 h-3.5" /> Architectural Recommendations
                   </h4>
-                  <ul className="space-y-1 text-[11px] text-slate-400">
+                  <ul className="space-y-1.5 text-[11px] text-slate-400 bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
                     {analysisResult.suggestions.map((s: string, idx: number) => (
-                      <li key={idx}>• {s}</li>
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-amber-400">•</span>
+                        <span>{s}</span>
+                      </li>
                     ))}
                   </ul>
                 </div>

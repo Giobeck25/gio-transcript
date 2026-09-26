@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Sparkles, Building, Lock, Mail, ArrowRight, ShieldCheck, UserCheck, Plus, CheckCircle2, Globe, Cpu } from 'lucide-react';
+import { Sparkles, Lock, Mail, ArrowRight, User as UserIcon, Plus, ShieldCheck } from 'lucide-react';
 import { Tenant, User } from '../types/index.js';
-import { api } from '../services/api.js';
 
 interface AuthGateProps {
   tenants: Tenant[];
@@ -10,47 +9,25 @@ interface AuthGateProps {
 }
 
 export const AuthGate: React.FC<AuthGateProps> = ({ tenants, onAuthenticated, onRefreshTenants }) => {
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
-  const [selectedTenantId, setSelectedTenantId] = useState(tenants[0]?.id || 'tenant-enterprise-1');
-  const [email, setEmail] = useState('g.becchetti@pebbleassistant.com');
-  const [password, setPassword] = useState('••••••••••••');
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   
-  // Registration Form State
-  const [newOrgName, setNewOrgName] = useState('');
-  const [newAdminName, setNewAdminName] = useState('');
-  const [newAdminEmail, setNewAdminEmail] = useState('');
-  const [newPlan, setNewPlan] = useState('Enterprise Tier');
+  // Login State
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  
+  // Signup State
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    setErrorMsg('');
-
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId: selectedTenantId, email }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Authentication failed');
-      }
-      onAuthenticated(data.tenant, data.user, data.token);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to sign in. Verify tenant selection.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRegisterTenant = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newOrgName || !newAdminName || !newAdminEmail) {
-      setErrorMsg('Please complete all organization fields.');
+    if (!email || !password) {
+      setErrorMsg('Email and password are required.');
       return;
     }
 
@@ -58,24 +35,65 @@ export const AuthGate: React.FC<AuthGateProps> = ({ tenants, onAuthenticated, on
     setErrorMsg('');
 
     try {
-      const res = await fetch('/api/auth/register-tenant', {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        throw new Error(`Server returned ${res.status} ${res.statusText}. Please retry.`);
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+      }
+      onAuthenticated(data.tenant, data.user, data.token);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to sign in.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !newEmail.trim() || !newPassword || !confirmPassword) {
+      setErrorMsg('Please complete all fields.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMsg('Passwords do not match.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMsg('');
+
+    try {
+      const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantName: newOrgName,
-          adminName: newAdminName,
-          adminEmail: newAdminEmail,
-          plan: newPlan,
+          name: newName.trim(),
+          email: newEmail.trim().toLowerCase(),
+          password: newPassword,
         }),
       });
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to provision tenant');
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        throw new Error(`Server returned ${res.status} ${res.statusText}. Please retry.`);
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create account.');
       }
       onRefreshTenants();
       onAuthenticated(data.tenant, data.user, data.token);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to register tenant.');
+      setErrorMsg(err.message || 'Failed to sign up.');
     } finally {
       setIsLoading(false);
     }
@@ -99,27 +117,27 @@ export const AuthGate: React.FC<AuthGateProps> = ({ tenants, onAuthenticated, on
             OmniFlow AI
           </h1>
           <p className="text-xs text-slate-400">
-            Enterprise Cognitive OS • Multi-Tenant Partitioning
+            Intelligent Cognitive Workflow
           </p>
         </div>
 
         {/* Mode Switcher Tabs */}
         <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-semibold">
           <button
-            onClick={() => setMode('signin')}
+            onClick={() => { setMode('signin'); setErrorMsg(''); }}
             className={`py-2 rounded-xl transition ${
               mode === 'signin' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Enterprise Sign In
+            Sign In
           </button>
           <button
-            onClick={() => setMode('register')}
+            onClick={() => { setMode('signup'); setErrorMsg(''); }}
             className={`py-2 rounded-xl transition ${
-              mode === 'register' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+              mode === 'signup' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Provision New Tenant
+            Create Account
           </button>
         </div>
 
@@ -129,40 +147,19 @@ export const AuthGate: React.FC<AuthGateProps> = ({ tenants, onAuthenticated, on
           </div>
         )}
 
-        {/* Tab 1: Enterprise Sign In */}
+        {/* Tab 1: Sign In */}
         {mode === 'signin' ? (
           <form onSubmit={handleSignIn} className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
-                <Building className="w-3.5 h-3.5 text-indigo-400" />
-                Select Tenant Workspace
-              </label>
-              <select
-                value={selectedTenantId}
-                onChange={(e) => setSelectedTenantId(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-medium"
-              >
-                {tenants.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.plan})
-                  </option>
-                ))}
-              </select>
-              <p className="text-[10px] text-slate-500 mt-1">
-                Zero-bleed isolation: Data is securely scoped to this tenant ID.
-              </p>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-indigo-400" />
-                Enterprise Email
+                Email Address
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@enterprise.com"
+                placeholder="name@example.com"
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 required
               />
@@ -171,13 +168,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({ tenants, onAuthenticated, on
             <div>
               <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-indigo-400" />
-                Password / Passkey
+                Password
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                required
               />
             </div>
 
@@ -186,84 +184,87 @@ export const AuthGate: React.FC<AuthGateProps> = ({ tenants, onAuthenticated, on
               disabled={isLoading}
               className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
             >
-              <span>{isLoading ? 'Verifying Tenant Security...' : 'Authorize & Open Workspace'}</span>
+              <span>{isLoading ? 'Verifying...' : 'Sign In'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         ) : (
-          /* Tab 2: Provision New Tenant Organization */
-          <form onSubmit={handleRegisterTenant} className="space-y-3.5">
+          /* Tab 2: Sign Up */
+          <form onSubmit={handleSignUp} className="space-y-3.5">
             <div>
-              <label className="text-xs font-semibold text-slate-400 block mb-1">Organization / Company Name</label>
+              <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
+                <UserIcon className="w-3.5 h-3.5 text-indigo-400" />
+                Full Name
+              </label>
               <input
                 type="text"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                placeholder="e.g. Acme Global Logistics"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Jane Doe"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                 required
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Admin Full Name</label>
+                <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                  Password
+                </label>
                 <input
-                  type="text"
-                  value={newAdminName}
-                  onChange={(e) => setNewAdminName(e.target.value)}
-                  placeholder="e.g. Gio Becchetti"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   required
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Tier</label>
-                <select
-                  value={newPlan}
-                  onChange={(e) => setNewPlan(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                >
-                  <option value="Enterprise Tier">Enterprise Tier</option>
-                  <option value="Professional Tier">Professional Tier</option>
-                  <option value="Dedicated VPC">Dedicated VPC</option>
-                </select>
+                <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                  Confirm
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  required
+                />
               </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-400 block mb-1">Admin Email Address</label>
-              <input
-                type="email"
-                value={newAdminEmail}
-                onChange={(e) => setNewAdminEmail(e.target.value)}
-                placeholder="admin@acmeglobal.com"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                required
-              />
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 transition disabled:opacity-50"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 transition disabled:opacity-50 mt-2"
             >
               <Plus className="w-4 h-4" />
-              <span>{isLoading ? 'Creating Partition...' : 'Provision Dedicated Tenant'}</span>
+              <span>{isLoading ? 'Creating Account...' : 'Create Account'}</span>
             </button>
           </form>
         )}
 
-        {/* Multi-Tenant Security Guarantee Badges */}
-        <div className="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Azure Cosmos Partitioning</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Cpu className="w-4 h-4 text-purple-400" />
-            <span>GPT-6 Astra Reasoning</span>
-          </div>
+        {/* Simple Security Badge */}
+        <div className="pt-4 border-t border-slate-800/80 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+          <ShieldCheck className="w-4 h-4 text-indigo-400" />
+          <span>Secured by OmniFlow AI</span>
         </div>
       </div>
     </div>

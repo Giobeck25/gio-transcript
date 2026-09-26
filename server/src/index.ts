@@ -69,6 +69,18 @@ if (clientDistPath) {
   });
 }
 
+// Global JSON error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('[Unhandled Server Error]', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Internal server error',
+  });
+});
+
 app.listen(config.port, () => {
   console.log(`=======================================================`);
   console.log(`🚀 OmniFlow AI Enterprise Platform running on http://localhost:${config.port}`);

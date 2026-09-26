@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic,
   MicOff,
@@ -15,6 +15,7 @@ import {
   Layers,
   ChevronRight,
   ExternalLink,
+  Users,
 } from 'lucide-react';
 import { Note, ActionStep } from '../types/index.js';
 import { api } from '../services/api.js';
@@ -33,11 +34,22 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
   const [newType, setNewType] = useState<'text' | 'voice'>('text');
   const [newTags, setNewTags] = useState('Enterprise, Roadmap');
   
-  // Voice Recording Simulation State
+  // Real Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activePlanTab, setActivePlanTab] = useState<'overview' | 'steps' | 'bullets' | 'tips' | 'document'>('overview');
+
+  // Multi-Speaker & Voice Setup Configuration
+  const [showVoiceSetup, setShowVoiceSetup] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<'single' | 'multi'>('single');
+  const [voiceCategory, setVoiceCategory] = useState<'note' | 'meeting' | 'reminder' | 'brainstorm'>('note');
+  const [speakers, setSpeakers] = useState<string[]>(['Gio', 'Byron']);
+  const [newSpeakerName, setNewSpeakerName] = useState('');
+  const [activeSpeakerIndex, setActiveSpeakerIndex] = useState(0);
 
   useEffect(() => {
     if (notes.length > 0 && !selectedNote) {
@@ -48,31 +60,131 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
     }
   }, [notes]);
 
+  // Check Web Speech API support
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setSpeechSupported(!!SpeechRecognition);
+  }, []);
+
   // Voice recording timer
   useEffect(() => {
     let interval: any;
-    if (isRecording) {
+    if (isRecording && !isPaused) {
       interval = setInterval(() => {
         setRecordingSeconds((s) => s + 1);
       }, 1000);
-    } else {
-      setRecordingSeconds(0);
     }
     return () => clearInterval(interval);
-  }, [isRecording]);
+  }, [isRecording, isPaused]);
 
-  const handleStartVoiceRecording = () => {
+  const formatSeconds = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleOpenVoiceSetup = () => {
+    setShowVoiceSetup(true);
+  };
+
+  const handleStartVoiceRecordingConfirmed = () => {
+    setShowVoiceSetup(false);
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+
     setIsCreating(true);
     setNewType('voice');
-    setNewTitle('Voice Dictation Note ' + new Date().toLocaleTimeString());
+    const categoryTitle = voiceCategory === 'meeting' ? 'Multi-Speaker Meeting Sync' : voiceCategory === 'reminder' ? 'Audio Reminder Note' : voiceCategory === 'brainstorm' ? 'Cognitive Brainstorm' : 'Voice Dictation';
+    setNewTitle(`${categoryTitle} — ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
     setIsRecording(true);
+    setIsPaused(false);
+    setRecordingSeconds(0);
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognitionRef.current = recognition;
+
+    let finalAccumulated = '';
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          const currentSpeaker = voiceMode === 'multi' ? speakers[activeSpeakerIndex] || 'Speaker' : '';
+          const formattedLine = currentSpeaker ? `[${formatSeconds(recordingSeconds)}] ${currentSpeaker}: ${transcript.trim()}` : transcript.trim();
+          finalAccumulated += (finalAccumulated ? '\n' : '') + formattedLine;
+          setNewContent(finalAccumulated);
+        } else {
+          interim += transcript;
+        }
+      }
+      if (interim) {
+        setNewContent(finalAccumulated + (finalAccumulated ? '\n' : '') + `[Speaking...] ${interim}`);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      if (event.error === 'not-allowed') {
+        alert('Microphone access was denied. Please allow microphone permissions in your browser address bar.');
+      }
+    };
+
+    recognition.onend = () => {
+      if (recognitionRef.current && isRecording && !isPaused) {
+        try { recognition.start(); } catch (e) {}
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (err) {
+      alert('Failed to start microphone. Please check permissions.');
+      setIsRecording(false);
+    }
   };
 
   const handleStopVoiceRecording = () => {
     setIsRecording(false);
-    // Simulated speech-to-text transcription result
-    const sampleVoiceTranscript = `Voice recording captured: Need to finalize the Byron SLA proposal document by Thursday morning. Also remember to check in with Maya regarding Google Calendar webhook listeners and setup a geofence trigger at Central Supermarket to buy organic coffee beans and oat milk.`;
-    setNewContent((prev) => (prev ? prev + '\n' + sampleVoiceTranscript : sampleVoiceTranscript));
+    setIsPaused(false);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setNewContent((prev) => prev.replace(/\[Speaking\.\.\.\].*/g, '').trim());
+  };
+
+  const handleStopAndProcess = async () => {
+    handleStopVoiceRecording();
+    // Clean up content
+    const cleanedContent = (newContent || '').replace(/\[Speaking\.\.\.\].*/g, '').trim();
+    if (!cleanedContent) {
+      alert('No speech content recorded yet. Please speak into your microphone first.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const note = await api.createNote({
+        title: newTitle || `Dictation Note ${new Date().toLocaleTimeString()}`,
+        content: cleanedContent,
+        type: 'voice',
+        tags: [voiceCategory, voiceMode === 'multi' ? 'Multi-Speaker' : 'Dictation'],
+      });
+      setIsCreating(false);
+      onRefreshNotes();
+      setSelectedNote(note);
+    } catch (err: any) {
+      alert('Error saving note: ' + err.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSaveNote = async () => {
@@ -153,9 +265,9 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
               <Plus className="w-4 h-4" />
             </button>
             <button
-              onClick={handleStartVoiceRecording}
+              onClick={handleOpenVoiceSetup}
               className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1 shadow-sm transition"
-              title="Dictate with Voice"
+              title="Dictate with Voice (Single or Multi-Speaker)"
             >
               <Mic className="w-4 h-4" />
             </button>
@@ -209,42 +321,126 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-base text-white flex items-center gap-2">
                 {newType === 'voice' ? <Mic className="w-5 h-5 text-rose-400" /> : <PenTool className="w-5 h-5 text-indigo-400" />}
-                {newType === 'voice' ? 'Live Voice Dictation Note' : 'Create Written Note'}
+                {newType === 'voice' ? (voiceMode === 'multi' ? 'Multi-Speaker Conversation & Meeting' : 'Live Voice Dictation Note') : 'Create Written Note'}
               </h3>
               <button
-                onClick={() => setIsCreating(false)}
+                onClick={() => {
+                  handleStopVoiceRecording();
+                  setIsCreating(false);
+                }}
                 className="text-xs text-slate-400 hover:text-slate-200"
               >
                 Cancel
               </button>
             </div>
 
-            {/* Voice Dictation Active State */}
+            {/* Advanced Voice Dictation Active State */}
             {newType === 'voice' && (
-              <div className="rounded-xl bg-slate-950 p-4 border border-rose-900/50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-4 h-4 rounded-full ${isRecording ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
-                  <div>
-                    <p className="text-xs font-bold text-white">
-                      {isRecording ? `Recording Audio... (${recordingSeconds}s)` : 'Audio Paused'}
-                    </p>
-                    <p className="text-[11px] text-slate-400">Speak clearly; AI will transcribe and create actionable plan.</p>
+              <div className="rounded-2xl bg-slate-950 p-4 border border-rose-900/50 space-y-3.5 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-900">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className={`w-4 h-4 rounded-full ${isRecording && !isPaused ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
+                      <div className={`absolute top-0 left-0 w-4 h-4 rounded-full ${isRecording && !isPaused ? 'bg-rose-500' : 'bg-slate-600'}`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-bold text-white font-mono">
+                          {isRecording ? (isPaused ? 'PAUSED' : `RECORDING ${formatSeconds(recordingSeconds)}`) : 'STOPPED'}
+                        </p>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 font-semibold uppercase">
+                          {voiceMode === 'multi' ? 'Multi-Speaker' : 'Single Voice'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        {speechSupported ? 'Live continuous transcription active via Web Speech API.' : '⚠️ Web Speech not detected, using audio memo.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Primary Stop & Process Controls */}
+                  <div className="flex items-center gap-2">
+                    {isRecording && (
+                      <button
+                        type="button"
+                        onClick={() => setIsPaused(!isPaused)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+                      >
+                        {isPaused ? '▶️ Resume' : '⏸️ Pause'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleStopAndProcess}
+                      disabled={isAnalyzing}
+                      className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-900/40 transition disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>{isAnalyzing ? 'Processing AI...' : '⏹️ Stop & Process with AI'}</span>
+                    </button>
                   </div>
                 </div>
-                {isRecording ? (
-                  <button
-                    onClick={handleStopVoiceRecording}
-                    className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center gap-1.5 transition"
-                  >
-                    <MicOff className="w-4 h-4" /> Stop & Transcribe
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setIsRecording(true)}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 transition"
-                  >
-                    <Mic className="w-4 h-4" /> Resume Dictation
-                  </button>
+
+                {/* Multi-Speaker Selector Bar */}
+                {voiceMode === 'multi' && (
+                  <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-indigo-400" /> Active Speaker (Click to attribute turn):
+                      </span>
+                      <span className="text-indigo-300 font-mono text-[10px]">
+                        Speaking now: <strong>{speakers[activeSpeakerIndex] || 'Speaker'}</strong>
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {speakers.map((spk, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setActiveSpeakerIndex(idx)}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition border flex items-center gap-1.5 ${
+                            activeSpeakerIndex === idx
+                              ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-900/50'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${activeSpeakerIndex === idx ? 'bg-amber-300 animate-pulse' : 'bg-slate-600'}`} />
+                          <span>{spk}</span>
+                        </button>
+                      ))}
+
+                      {/* Add Speaker Input */}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={newSpeakerName}
+                          onChange={(e) => setNewSpeakerName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newSpeakerName.trim()) {
+                              e.preventDefault();
+                              setSpeakers([...speakers, newSpeakerName.trim()]);
+                              setNewSpeakerName('');
+                            }
+                          }}
+                          placeholder="+ Name..."
+                          className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newSpeakerName.trim()) {
+                              setSpeakers([...speakers, newSpeakerName.trim()]);
+                              setNewSpeakerName('');
+                            }
+                          }}
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -537,6 +733,133 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
           </div>
         )}
       </div>
+
+      {/* Voice Recording Setup Modal */}
+      {showVoiceSetup && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-rose-950 text-rose-400 border border-rose-800 flex items-center justify-center">
+                  <Mic className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Live Voice Dictation Setup</h3>
+                  <p className="text-[11px] text-slate-400">Configure speech recognition & speaker tracking</p>
+                </div>
+              </div>
+              <button onClick={() => setShowVoiceSetup(false)} className="text-slate-500 hover:text-slate-300 text-sm">✕</button>
+            </div>
+
+            {/* Mode: Single vs Multi-Speaker */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Participant Mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVoiceMode('single')}
+                  className={`p-3 rounded-xl border text-left transition ${voiceMode === 'single' ? 'bg-indigo-950 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'}`}
+                >
+                  <p className="font-bold text-xs">🎙️ Single Speaker</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Personal dictation / memo</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVoiceMode('multi')}
+                  className={`p-3 rounded-xl border text-left transition ${voiceMode === 'multi' ? 'bg-indigo-950 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'}`}
+                >
+                  <p className="font-bold text-xs">👥 Multi-Speaker</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Meeting / conversation turns</p>
+                </button>
+              </div>
+            </div>
+
+            {/* Category / Intention */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Category / Goal</label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {(['note', 'meeting', 'reminder', 'brainstorm'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setVoiceCategory(cat)}
+                    className={`py-2 px-3 rounded-xl capitalize font-semibold border transition text-center ${
+                      voiceCategory === cat ? 'bg-rose-950 text-rose-300 border-rose-700' : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    {cat === 'note' ? '📝 Quick Note' : cat === 'meeting' ? '🤝 Meeting' : cat === 'reminder' ? '⏰ Reminder' : '💡 Brainstorm'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Speaker Setup (if multi) */}
+            {voiceMode === 'multi' && (
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                  Identify Speakers ({speakers.length})
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {speakers.map((s, idx) => (
+                    <span key={idx} className="px-2.5 py-1 rounded-lg bg-indigo-950/80 border border-indigo-800 text-indigo-300 text-xs flex items-center gap-1.5 font-medium">
+                      <span>{s}</span>
+                      {speakers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setSpeakers(speakers.filter((_, i) => i !== idx))}
+                          className="text-slate-500 hover:text-rose-400 text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newSpeakerName}
+                    onChange={(e) => setNewSpeakerName(e.target.value)}
+                    placeholder="Enter speaker name (e.g. Maya)..."
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newSpeakerName.trim()) {
+                        setSpeakers([...speakers, newSpeakerName.trim()]);
+                        setNewSpeakerName('');
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Controls */}
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowVoiceSetup(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartVoiceRecordingConfirmed}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-rose-900/40 transition"
+              >
+                <Mic className="w-4 h-4" />
+                <span>Start Live Microphone</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -101,3 +101,16 @@ canvasRouter.post('/:id/analyze', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// DELETE canvas
+canvasRouter.delete('/:id', (req: Request, res: Response) => {
+  const { tenantId, userId } = getContext(req);
+  const canvasId = String(req.params.id);
+  const success = db.deleteCanvas(tenantId, canvasId);
+  if (!success) {
+    res.status(404).json({ success: false, error: 'Canvas not found' });
+    return;
+  }
+  db.logAudit(tenantId, userId, 'CANVAS_DELETED', { canvasId });
+  res.json({ success: true });
+});

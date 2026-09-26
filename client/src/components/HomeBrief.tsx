@@ -42,9 +42,47 @@ export const HomeBrief: React.FC<HomeBriefProps> = ({
   onNavigateTab,
 }) => {
   const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const brief = briefData?.brief || {};
   const weather = briefData?.weather || { location: 'Sydney, NSW', temperature: 22, condition: 'Sunny' };
   const radar = brief?.preMeetingRadar;
+
+  // Local Time-Aware Greeting
+  const getClientTimeGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Good morning';
+    if (hour >= 12 && hour < 17) return 'Good afternoon';
+    if (hour >= 17 && hour < 22) return 'Good evening';
+    return 'Late night focus';
+  };
+
+  const currentGreeting = getClientTimeGreeting();
+
+  // Dynamic Situational Advice
+  const getSituationalTips = () => {
+    const tips: string[] = [];
+    const urgentTasks = tasks.filter((t) => (t.priority === 'urgent' || t.priority === 'high') && t.status !== 'completed');
+    if (urgentTasks.length > 0) {
+      tips.push(`High Priority: "${urgentTasks[0].title}" requires action today.`);
+    }
+    if (pendingProposals.length > 0) {
+      tips.push(`${pendingProposals.length} calendar block(s) waiting for human approval in the Commitment Ledger.`);
+    }
+    if (calendarEvents.length > 0) {
+      const nextEvt = calendarEvents[0];
+      tips.push(`Upcoming event: "${nextEvt.title}" at ${new Date(nextEvt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`);
+    } else {
+      tips.push(`Calendar clear for deep work blocks.`);
+    }
+    const hour = new Date().getHours();
+    if (hour >= 17) {
+      tips.push(`Evening wrap-up: Review completed subtasks and confirm tomorrow's commitments.`);
+    } else if (hour >= 12) {
+      tips.push(`Midday pace: Protect a 30-min focus buffer prior to afternoon syncs.`);
+    }
+    return tips;
+  };
 
   const handleGenerateRadarBrief = async () => {
     if (!radar) return;
@@ -62,10 +100,11 @@ export const HomeBrief: React.FC<HomeBriefProps> = ({
   const pendingProposals = proposals.filter((p) => p.status === 'pending');
   const todayTasks = tasks.slice(0, 3);
   const upcomingEvents = calendarEvents.slice(0, 4);
+  const activeTips = aiSuggestions.length > 0 ? aiSuggestions : getSituationalTips();
 
   return (
     <div className="space-y-6">
-      {/* 🌅 Morning Brief & Live Weather Banner */}
+      {/* 🌅 Time-Aware Executive Brief Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950/60 to-purple-950/50 border border-indigo-900/40 p-6 md:p-8 shadow-2xl">
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         
@@ -73,16 +112,16 @@ export const HomeBrief: React.FC<HomeBriefProps> = ({
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-900/50 border border-indigo-700/50 text-indigo-300 text-xs font-semibold mb-3">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>OmniFlow Executive Briefing</span>
+              <span>OmniFlow Executive Briefing • {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              {brief.greeting || 'Good morning'}, Gio
+              {currentGreeting}, Gio
             </h1>
             <p className="text-slate-400 text-xs md:text-sm mt-1 max-w-xl">
-              Today is <strong className="text-slate-200">{brief.dateFormatted || 'Saturday, Sep 26'}</strong>. You have{' '}
+              Today is <strong className="text-slate-200">{new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).format(new Date())}</strong>. You have{' '}
               <span className="text-indigo-400 font-semibold">{upcomingEvents.length} events scheduled</span>,{' '}
-              <span className="text-amber-400 font-semibold">{tasks.length} active tasks</span>, and{' '}
-              <span className="text-purple-400 font-semibold">{pendingProposals.length} AI schedule proposals</span> waiting for review.
+              <span className="text-amber-400 font-semibold">{tasks.filter(t => t.status !== 'completed').length} active tasks</span>, and{' '}
+              <span className="text-purple-400 font-semibold">{pendingProposals.length} schedule proposals</span> awaiting review.
             </p>
           </div>
 
@@ -123,6 +162,27 @@ export const HomeBrief: React.FC<HomeBriefProps> = ({
             <p className="text-xl font-bold text-purple-400 mt-0.5">{pendingProposals.length}</p>
           </div>
         </div>
+
+        {/* 🧠 Dynamic Cognitive Suggestions & Proactive Tips */}
+        {activeTips.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-800/80 bg-slate-950/40 rounded-2xl p-4 border border-indigo-900/30">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                Astra AI Proactive Radar & Situational Tips
+              </span>
+              <span className="text-[11px] text-slate-500 font-mono">Real-Time Context</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              {activeTips.map((tip, idx) => (
+                <div key={idx} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs text-slate-300">
+                  <span className="text-amber-400 text-sm">💡</span>
+                  <span className="leading-relaxed">{tip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ⚡ PRE-MEETING CONTEXT RADAR (e.g. Byron Meeting in 20 Min) */}

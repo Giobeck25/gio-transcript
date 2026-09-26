@@ -34,7 +34,44 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ events, syncStatus, 
   const [connectModal, setConnectModal] = useState<'google' | 'outlook' | null>(null);
   const [connectEmail, setConnectEmail] = useState('');
   const [connectToken, setConnectToken] = useState('');
+  const [googleClientId, setGoogleClientId] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Check URL params on load for OAuth callbacks
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('calendar_connected');
+    const err = params.get('calendar_error');
+    const email = params.get('email');
+
+    if (connected) {
+      setOauthMessage({
+        type: 'success',
+        text: `Successfully linked ${connected === 'google' ? 'Google Calendar' : 'Microsoft Outlook'} (${email || 'active account'})! Synchronizing real calendar events...`,
+      });
+      onRefreshEvents();
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (err) {
+      setOauthMessage({
+        type: 'error',
+        text: `Calendar authorization notice: ${decodeURIComponent(err)}`,
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  const handleLaunchOAuth = (provider: 'google' | 'outlook') => {
+    const session = api.getSession();
+    const query = new URLSearchParams({
+      tenantId: session.tenantId,
+      userId: session.userId,
+    });
+    if (provider === 'google' && googleClientId.trim()) {
+      query.set('clientId', googleClientId.trim());
+    }
+    window.location.href = `/api/calendar/auth/${provider}?${query.toString()}`;
+  };
 
   // New Event Form State
   const [newEventTitle, setNewEventTitle] = useState('');
@@ -116,6 +153,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ events, syncStatus, 
 
   return (
     <div className="space-y-6">
+      {oauthMessage && (
+        <div className={`p-4 rounded-2xl flex items-center justify-between border ${oauthMessage.type === 'success' ? 'bg-emerald-950/80 border-emerald-800 text-emerald-200' : 'bg-rose-950/80 border-rose-800 text-rose-200'}`}>
+          <div className="flex items-center gap-2.5 text-xs font-semibold">
+            {oauthMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+            <span>{oauthMessage.text}</span>
+          </div>
+          <button onClick={() => setOauthMessage(null)} className="text-xs opacity-70 hover:opacity-100 font-bold ml-2">✕</button>
+        </div>
+      )}
+
       {/* 2-Way Sync Integration Status Bar */}
       <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-5 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-4">
@@ -352,20 +399,70 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ events, syncStatus, 
       {/* Connect Cloud Account Modal */}
       {connectModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center gap-2.5">
-              <Globe className="w-5 h-5 text-indigo-400" />
-              <h3 className="font-bold text-base text-white">
-                Connect {connectModal === 'google' ? 'Google Calendar' : 'Microsoft Outlook'}
-              </h3>
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${connectModal === 'google' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-sky-950 text-sky-400 border border-sky-800'}`}>
+                  <Globe className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">
+                    Connect {connectModal === 'google' ? 'Google Calendar' : 'Microsoft 365 / Outlook'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Real OAuth 2.0 Authorization & Bi-Directional Event Sync</p>
+                </div>
+              </div>
+              <button onClick={() => setConnectModal(null)} className="text-slate-500 hover:text-slate-300 text-sm">✕</button>
             </div>
-            <p className="text-xs text-slate-400">
-              Authorize bi-directional synchronization with your real cloud calendar.
-            </p>
 
-            <form onSubmit={handleConnectProvider} className="space-y-3.5">
+            {/* Primary Action: Real OAuth 2.0 Sign-In Button */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+              <p className="text-xs text-slate-300 font-medium">
+                {connectModal === 'google'
+                  ? 'Sign in securely with your Google account to grant calendar read & write permissions.'
+                  : 'Sign in securely with your Microsoft account (work, school, or personal) to link Outlook Calendar.'}
+              </p>
+
+              {connectModal === 'google' && (
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold text-slate-400 block">
+                    Custom Google OAuth Client ID (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={googleClientId}
+                    onChange={(e) => setGoogleClientId(e.target.value)}
+                    placeholder="Leave blank to use Default Gemini Project or enter custom client_id..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleLaunchOAuth(connectModal)}
+                className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition ${
+                  connectModal === 'google'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-900/40'
+                    : 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white shadow-sky-900/40'
+                }`}
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Sign in with {connectModal === 'google' ? 'Google (Real OAuth 2.0)' : 'Microsoft Outlook (Real OAuth 2.0)'}</span>
+              </button>
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 text-[11px] text-slate-500">
+              <div className="h-px bg-slate-800 flex-1" />
+              <span>OR ENTER BEARER TOKEN DIRECTLY</span>
+              <div className="h-px bg-slate-800 flex-1" />
+            </div>
+
+            {/* Alternative Form: Direct Token / Service Account */}
+            <form onSubmit={handleConnectProvider} className="space-y-3">
               <div>
-                <label className="text-xs text-slate-400 font-semibold block mb-1">
+                <label className="text-[11px] text-slate-400 font-semibold block mb-1">
                   Account Email Address
                 </label>
                 <input
@@ -379,14 +476,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ events, syncStatus, 
               </div>
 
               <div>
-                <label className="text-xs text-slate-400 font-semibold block mb-1">
-                  OAuth Bearer Access Token (Optional for direct API access)
+                <label className="text-[11px] text-slate-400 font-semibold block mb-1">
+                  OAuth Access Token (Direct Graph / Google API Token)
                 </label>
                 <textarea
                   value={connectToken}
                   onChange={(e) => setConnectToken(e.target.value)}
                   rows={2}
-                  placeholder="Paste OAuth token from Google Cloud / Microsoft Graph or leave blank to authenticate via web session..."
+                  placeholder="Paste OAuth access token for direct API sync..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
                 />
               </div>
@@ -402,10 +499,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ events, syncStatus, 
                 <button
                   type="submit"
                   disabled={isConnecting}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
                 >
                   <Link className="w-3.5 h-3.5" />
-                  <span>{isConnecting ? 'Authorizing...' : 'Connect Calendar'}</span>
+                  <span>{isConnecting ? 'Linking...' : 'Connect with Token'}</span>
                 </button>
               </div>
             </form>
