@@ -1,0 +1,302 @@
+import React, { useState } from 'react';
+import {
+  CheckCircle2,
+  Circle,
+  Plus,
+  Clock,
+  Tag,
+  Trash2,
+  ListTodo,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
+import { Task } from '../types/index.js';
+import { api } from '../services/api.js';
+
+interface TasksViewProps {
+  tasks: Task[];
+  onRefreshTasks: () => void;
+}
+
+export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) => {
+  const [filter, setFilter] = useState<'all' | 'todo' | 'in_progress' | 'completed'>('all');
+  const [isAdding, setIsAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newPriority, setNewPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
+  const [newDueDate, setNewDueDate] = useState('');
+  const [subtasksInput, setSubtasksInput] = useState('');
+
+  const handleToggleSubtask = async (task: Task, subtaskId: string) => {
+    const updatedSubtasks = task.subtasks.map((st) =>
+      st.id === subtaskId ? { ...st, completed: !st.completed } : st
+    );
+
+    const allCompleted = updatedSubtasks.length > 0 && updatedSubtasks.every((st) => st.completed);
+
+    await api.updateTask(task.id, {
+      subtasks: updatedSubtasks,
+      status: allCompleted ? 'completed' : task.status,
+    });
+    onRefreshTasks();
+  };
+
+  const handleToggleTaskStatus = async (task: Task) => {
+    const newStatus = task.status === 'completed' ? 'in_progress' : 'completed';
+    await api.updateTask(task.id, { status: newStatus });
+    onRefreshTasks();
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+
+    const subtasks = subtasksInput
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((title, idx) => ({ id: `st-${Date.now()}-${idx}`, title, completed: false }));
+
+    await api.createTask({
+      title: newTitle.trim(),
+      description: newDesc.trim(),
+      priority: newPriority,
+      dueDate: newDueDate || undefined,
+      subtasks,
+    });
+
+    setIsAdding(false);
+    setNewTitle('');
+    setNewDesc('');
+    setSubtasksInput('');
+    onRefreshTasks();
+  };
+
+  const filteredTasks = tasks.filter((t) => {
+    if (filter === 'all') return true;
+    return t.status === filter;
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Header & Controls */}
+      <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <ListTodo className="w-5 h-5 text-amber-400" />
+            Execution Tasks & Commitments
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Action items synthesized from notes, diarized meetings, and visual schemas.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            {(['all', 'in_progress', 'todo', 'completed'] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => setFilter(st)}
+                className={`px-3 py-1.5 rounded-lg capitalize font-medium transition ${
+                  filter === st ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {st.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setIsAdding(true)}
+            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-amber-600/30 transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Task</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Task Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {filteredTasks.map((t) => {
+          const isDone = t.status === 'completed';
+          const completedCount = t.subtasks.filter((s) => s.completed).length;
+
+          return (
+            <div
+              key={t.id}
+              className={`rounded-2xl border p-5 transition shadow-lg space-y-3 ${
+                isDone
+                  ? 'bg-slate-950/40 border-slate-800/80 opacity-60'
+                  : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <button
+                    onClick={() => handleToggleTaskStatus(t)}
+                    className="mt-0.5 text-slate-400 hover:text-emerald-400 transition"
+                  >
+                    {isDone ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    ) : (
+                      <Circle className="w-5 h-5 text-slate-500" />
+                    )}
+                  </button>
+                  <div>
+                    <h3 className={`font-semibold text-sm ${isDone ? 'line-through text-slate-500' : 'text-slate-100'}`}>
+                      {t.title}
+                    </h3>
+                    {t.description && (
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">{t.description}</p>
+                    )}
+                  </div>
+                </div>
+
+                <span
+                  className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded flex-shrink-0 ${
+                    t.priority === 'urgent'
+                      ? 'bg-rose-950 text-rose-400 border border-rose-800'
+                      : t.priority === 'high'
+                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {t.priority}
+                </span>
+              </div>
+
+              {/* Subtasks Checklist */}
+              {t.subtasks.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                    <span>Subtasks</span>
+                    <span>
+                      {completedCount} / {t.subtasks.length} completed
+                    </span>
+                  </div>
+                  {t.subtasks.map((st) => (
+                    <div
+                      key={st.id}
+                      onClick={() => handleToggleSubtask(t, st.id)}
+                      className="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 hover:bg-slate-950 cursor-pointer text-xs transition"
+                    >
+                      <CheckCircle2
+                        className={`w-3.5 h-3.5 flex-shrink-0 ${
+                          st.completed ? 'text-emerald-400' : 'text-slate-600'
+                        }`}
+                      />
+                      <span className={st.completed ? 'line-through text-slate-500' : 'text-slate-300'}>
+                        {st.title}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Footer Meta */}
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-800/60">
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> Due: {t.dueDate || 'No date set'}
+                </span>
+                <div className="flex gap-1">
+                  {t.tags.map((tag, idx) => (
+                    <span key={idx} className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[10px]">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* New Task Modal */}
+      {isAdding && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <h3 className="font-bold text-base text-white">Create New Task</h3>
+            <form onSubmit={handleCreateTask} className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 font-semibold block mb-1">Task Title</label>
+                <input
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="e.g. Deliver SLA Pricing Annex"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 font-semibold block mb-1">Description / Notes</label>
+                <textarea
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  rows={2}
+                  placeholder="Context and details..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 font-semibold block mb-1">Priority</label>
+                  <select
+                    value={newPriority}
+                    onChange={(e) => setNewPriority(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 font-semibold block mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    value={newDueDate}
+                    onChange={(e) => setNewDueDate(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 font-semibold block mb-1">Subtasks (1 per line)</label>
+                <textarea
+                  value={subtasksInput}
+                  onChange={(e) => setSubtasksInput(e.target.value)}
+                  rows={3}
+                  placeholder="Draft SLA table&#10;Maya review&#10;Send to Byron"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAdding(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold"
+                >
+                  Create Task
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
