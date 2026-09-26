@@ -247,7 +247,7 @@ calendarRouter.get('/auth/google', (req: Request, res: Response) => {
       response_type: 'code',
       scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly openid email profile',
       access_type: 'offline',
-      prompt: 'consent',
+      prompt: 'select_account consent',
       state,
     }).toString();
 

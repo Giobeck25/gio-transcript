@@ -250,6 +250,16 @@ class ApiClient {
     return data.task;
   }
 
+  public async aiExecuteTask(taskId: string): Promise<Task> {
+    const res = await fetch(`/api/tasks/${taskId}/ai-execute`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'AI execution failed');
+    return data.task;
+  }
+
   // Canvases
   public async getCanvases(): Promise<CanvasSchema[]> {
     const res = await fetch('/api/canvas', { headers: this.getHeaders() });
@@ -309,6 +319,12 @@ class ApiClient {
     });
     const data = await res.json();
     return data.success;
+  }
+
+  public async searchNearbyPlaces(lat: number, lng: number, radius = 500, type = 'store'): Promise<any[]> {
+    const res = await fetch(`/api/geofences/nearby-places?lat=${lat}&lng=${lng}&radius=${radius}&type=${type}`, { headers: this.getHeaders() });
+    const data = await res.json();
+    return data.places || [];
   }
 
   public async checkLocation(latitude: number, longitude: number): Promise<any> {

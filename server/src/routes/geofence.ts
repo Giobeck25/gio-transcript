@@ -61,6 +61,57 @@ geofenceRouter.post('/check-location', (req: Request, res: Response) => {
   res.json({ success: true, ...result });
 });
 
+// GET nearby places using Google Places API
+geofenceRouter.get('/nearby-places', async (req: Request, res: Response) => {
+  const { lat, lng, radius = '500', type = 'store' } = req.query;
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || '';
+  
+  if (!apiKey) {
+    res.json({ success: false, error: 'Google Places API key not configured', places: [] });
+    return;
+  }
+  
+  if (!lat || !lng) {
+    res.status(400).json({ success: false, error: 'lat and lng are required' });
+    return;
+  }
+  
+  try {
+    const response = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'places.displayName,places.location,places.formattedAddress,places.types,places.primaryType',
+      },
+      body: JSON.stringify({
+        includedTypes: [String(type)],
+        maxResultCount: 20,
+        locationRestriction: {
+          circle: {
+            center: { latitude: Number(lat), longitude: Number(lng) },
+            radius: Number(radius),
+          },
+        },
+      }),
+    });
+    
+    const data = await response.json();
+    const places = (data.places || []).map((p: any) => ({
+      name: p.displayName?.text || 'Unknown',
+      lat: p.location?.latitude,
+      lng: p.location?.longitude,
+      address: p.formattedAddress || '',
+      type: p.primaryType || p.types?.[0] || 'place',
+    }));
+    
+    res.json({ success: true, places });
+  } catch (err: any) {
+    console.error('[Places API Error]', err);
+    res.json({ success: true, places: [], error: err.message });
+  }
+});
+
 // PUT Toggle geofence active status
 geofenceRouter.put('/:id/toggle', (req: Request, res: Response) => {
   const { tenantId } = getContext(req);

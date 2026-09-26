@@ -14,6 +14,26 @@ authRouter.get('/tenants', (req: Request, res: Response) => {
   res.json({ success: true, tenants });
 });
 
+// Get users for a tenant
+authRouter.get('/users', (req: Request, res: Response) => {
+  const tenantId = req.query.tenantId as string;
+  if (!tenantId) {
+    res.json({ success: true, users: [] });
+    return;
+  }
+  const allUsers = (db as any).data.users.filter((u: any) => u.tenantId === tenantId);
+  // Strip password data before sending
+  const safeUsers = allUsers.map((u: any) => ({
+    id: u.id,
+    tenantId: u.tenantId,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    avatar: u.avatar,
+  }));
+  res.json({ success: true, users: safeUsers });
+});
+
 // Signup
 authRouter.post('/signup', (req: Request, res: Response) => {
   const { name, email, password } = req.body;
@@ -68,7 +88,7 @@ authRouter.post('/signup', (req: Request, res: Response) => {
     success: true,
     token: `bearer-${tenantId}-${userId}`,
     tenant: newTenant,
-    user: newUser,
+    user: { id: newUser.id, tenantId: newUser.tenantId, email: newUser.email, name: newUser.name, role: newUser.role, avatar: newUser.avatar },
   });
 });
 
@@ -106,7 +126,7 @@ authRouter.post('/login', (req: Request, res: Response) => {
     success: true,
     token: `bearer-${tenant.id}-${user.id}`,
     tenant,
-    user,
+    user: { id: user.id, tenantId: user.tenantId, email: user.email, name: user.name, role: user.role, avatar: user.avatar },
   });
 });
 

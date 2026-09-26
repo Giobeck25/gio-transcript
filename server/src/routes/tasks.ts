@@ -78,6 +78,68 @@ tasksRouter.put('/:id', (req: Request, res: Response) => {
   res.json({ success: true, task: updated });
 });
 
+// POST AI Execute Task - AI processes all subtasks and generates result document
+tasksRouter.post('/:id/ai-execute', async (req: Request, res: Response) => {
+  const { tenantId, userId } = getContext(req);
+  const tasks = db.getTasks(tenantId);
+  const existing = tasks.find((t) => t.id === req.params.id);
+
+  if (!existing) {
+    res.status(404).json({ success: false, error: 'Task not found' });
+    return;
+  }
+
+  try {
+    const { aiService } = await import('../services/ai.js');
+    
+    const updatedSubtasks = existing.subtasks.map((st) => ({ ...st, completed: true }));
+    
+    // Generate comprehensive AI result for the entire task
+    const aiPrompt = `You are an AI task execution assistant. The user has a task: "${existing.title}"
+Description: ${existing.description || 'No description provided'}
+
+Subtasks to complete:
+${existing.subtasks.map((st, i) => `${i + 1}. ${st.title}`).join('\n')}
+
+For each subtask, provide a detailed completion report with:
+- What was done
+- Key findings or deliverables
+- Any recommendations
+
+Then provide an overall Executive Summary document in markdown format with:
+- Task Overview
+- Completed Actions (bullet points for each subtask)
+- Key Deliverables
+- Recommendations & Next Steps
+- Completion timestamp: ${new Date().toISOString()}
+
+Be thorough and professional.`;
+
+    const aiResult = await aiService.companionChat(
+      [{ role: 'user', content: aiPrompt }],
+      { notesCount: 0, meetingsCount: 0, pendingProposalsCount: 0, upcomingEvents: [], tasks: [existing.title], recentNotes: [], activeGeofences: [] }
+    );
+    
+    // Update the task with completed subtasks and AI result
+    const updated: any = {
+      ...existing,
+      status: 'completed',
+      subtasks: updatedSubtasks,
+      aiExecutionResult: {
+        completedAt: new Date().toISOString(),
+        executedBy: 'AI Assistant',
+        resultDocument: aiResult.message,
+      },
+    };
+    
+    db.saveTask(updated);
+    res.json({ success: true, task: updated });
+  } catch (err: any) {
+    console.error('[AI Execute Error]', err);
+    res.status(500).json({ success: false, error: 'AI execution failed: ' + err.message });
+  }
+});
+
 // DELETE task
 tasksRouter.delete('/:id', (req: Request, res: Response) => {
   const { tenantId, userId } = getContext(req);

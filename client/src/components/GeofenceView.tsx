@@ -71,6 +71,44 @@ export const GeofenceView: React.FC<GeofenceViewProps> = ({
   const [addToTasks, setAddToTasks] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [nearbyPlaces, setNearbyPlaces] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchType, setSearchType] = useState('store');
+  const nearbyLayerRef = useRef<L.LayerGroup | null>(null);
+
+  const handleSearchNearby = async () => {
+    setIsSearching(true);
+    try {
+      const places = await api.searchNearbyPlaces(currentPos.lat, currentPos.lon, 500, searchType);
+      setNearbyPlaces(places);
+      // Add markers to map
+      if (nearbyLayerRef.current) nearbyLayerRef.current.clearLayers();
+      const layer = L.layerGroup().addTo(mapInstanceRef.current!);
+      nearbyLayerRef.current = layer;
+      places.forEach((p: any) => {
+        if (p.lat && p.lng) {
+          const marker = L.marker([p.lat, p.lng], {
+            icon: L.divIcon({
+              className: '',
+              html: `<div style="background:#f59e0b;color:#000;font-size:10px;font-weight:bold;padding:2px 6px;border-radius:8px;white-space:nowrap;border:1px solid #d97706">${p.name}</div>`,
+              iconSize: [0, 0],
+              iconAnchor: [-5, 15],
+            }),
+          }).addTo(layer);
+          marker.on('click', () => {
+            setSelectedCoord({ lat: p.lat, lon: p.lng });
+            setShopName(p.name);
+            setReminderRequest(`Shopping at ${p.name}`);
+          });
+        }
+      });
+    } catch (err: any) {
+      console.error('Nearby search error:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   // Sound chime
   const playArrivalChime = () => {
     try {
@@ -396,6 +434,20 @@ export const GeofenceView: React.FC<GeofenceViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl">
+            <select value={searchType} onChange={(e) => setSearchType(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
+              <option value="store">🏪 Shops</option>
+              <option value="restaurant">🍕 Restaurants</option>
+              <option value="pharmacy">💊 Pharmacies</option>
+              <option value="gas_station">⛽ Gas Stations</option>
+              <option value="supermarket">🛒 Supermarkets</option>
+              <option value="bank">🏦 Banks</option>
+              <option value="cafe">☕ Cafes</option>
+            </select>
+            <button onClick={handleSearchNearby} disabled={isSearching} className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1">
+              {isSearching ? 'Searching...' : '🔍 Find Nearby'}
+            </button>
+          </div>
           <button
             onClick={handleCenterOnUser}
             className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-blue-900/40 transition"

@@ -1,0 +1,6 @@
+{
+  "signInAudience": "AzureADandPersonalMicrosoftAccount",
+  "api": {
+    "requestedAccessTokenVersion": 2
+  }
+}

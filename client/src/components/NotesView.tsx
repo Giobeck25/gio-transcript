@@ -40,6 +40,9 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [speechSupported, setSpeechSupported] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const isRecordingRef = useRef(false);
+  const isPausedRef = useRef(false);
+  const accumulatedRef = useRef('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activePlanTab, setActivePlanTab] = useState<'overview' | 'steps' | 'bullets' | 'tips' | 'document'>('overview');
 
@@ -100,16 +103,17 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
     const categoryTitle = voiceCategory === 'meeting' ? 'Multi-Speaker Meeting Sync' : voiceCategory === 'reminder' ? 'Audio Reminder Note' : voiceCategory === 'brainstorm' ? 'Cognitive Brainstorm' : 'Voice Dictation';
     setNewTitle(`${categoryTitle} — ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
     setIsRecording(true);
+    isRecordingRef.current = true;
     setIsPaused(false);
+    isPausedRef.current = false;
     setRecordingSeconds(0);
+    accumulatedRef.current = '';
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
     recognitionRef.current = recognition;
-
-    let finalAccumulated = '';
 
     recognition.onresult = (event: any) => {
       let interim = '';
@@ -118,27 +122,30 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
         if (event.results[i].isFinal) {
           const currentSpeaker = voiceMode === 'multi' ? speakers[activeSpeakerIndex] || 'Speaker' : '';
           const formattedLine = currentSpeaker ? `[${formatSeconds(recordingSeconds)}] ${currentSpeaker}: ${transcript.trim()}` : transcript.trim();
-          finalAccumulated += (finalAccumulated ? '\n' : '') + formattedLine;
-          setNewContent(finalAccumulated);
+          accumulatedRef.current += (accumulatedRef.current ? '\n' : '') + formattedLine;
+          setNewContent(accumulatedRef.current);
         } else {
           interim += transcript;
         }
       }
       if (interim) {
-        setNewContent(finalAccumulated + (finalAccumulated ? '\n' : '') + `[Speaking...] ${interim}`);
+        setNewContent(accumulatedRef.current + (accumulatedRef.current ? '\n' : '') + `[Speaking...] ${interim}`);
       }
     };
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
       if (event.error === 'not-allowed') {
-        alert('Microphone access was denied. Please allow microphone permissions in your browser address bar.');
+        alert('Microphone access was denied. Please allow microphone permissions in your browser settings.');
+        setIsRecording(false);
+        isRecordingRef.current = false;
       }
     };
 
     recognition.onend = () => {
-      if (recognitionRef.current && isRecording && !isPaused) {
-        try { recognition.start(); } catch (e) {}
+      // Use refs instead of state to avoid stale closure
+      if (isRecordingRef.current && !isPausedRef.current) {
+        try { recognition.start(); } catch (e) { console.warn('Recognition restart failed:', e); }
       }
     };
 
@@ -147,12 +154,15 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
     } catch (err) {
       alert('Failed to start microphone. Please check permissions.');
       setIsRecording(false);
+      isRecordingRef.current = false;
     }
   };
 
   const handleStopVoiceRecording = () => {
     setIsRecording(false);
+    isRecordingRef.current = false;
     setIsPaused(false);
+    isPausedRef.current = false;
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
@@ -363,7 +373,18 @@ export const NotesView: React.FC<NotesViewProps> = ({ notes, onRefreshNotes, onO
                     {isRecording && (
                       <button
                         type="button"
-                        onClick={() => setIsPaused(!isPaused)}
+                        onClick={() => {
+                          const next = !isPaused;
+                          setIsPaused(next);
+                          isPausedRef.current = next;
+                          if (!next && recognitionRef.current) {
+                            // Resuming - restart recognition
+                            try { recognitionRef.current.start(); } catch (e) {}
+                          } else if (next && recognitionRef.current) {
+                            // Pausing - stop recognition
+                            recognitionRef.current.stop();
+                          }
+                        }}
                         className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition"
                       >
                         {isPaused ? '▶️ Resume' : '⏸️ Pause'}

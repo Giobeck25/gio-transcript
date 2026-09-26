@@ -10,6 +10,10 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  Sparkles,
+  Download,
+  FileText,
+  Bot,
 } from 'lucide-react';
 import { Task } from '../types/index.js';
 import { api } from '../services/api.js';
@@ -29,6 +33,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
   const [subtasksInput, setSubtasksInput] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [executingTaskId, setExecutingTaskId] = useState<string | null>(null);
+  const [viewingResultId, setViewingResultId] = useState<string | null>(null);
 
   const handleToggleSubtask = async (task: Task, subtaskId: string) => {
     const updatedSubtasks = task.subtasks.map((st) =>
@@ -90,6 +96,30 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
     const updatedSubtasks = task.subtasks.filter((st) => st.id !== subtaskId);
     await api.updateTask(task.id, { subtasks: updatedSubtasks });
     onRefreshTasks();
+  };
+
+  const handleAIExecute = async (task: Task) => {
+    if (!confirm('Let AI execute all subtasks and generate a result document?')) return;
+    setExecutingTaskId(task.id);
+    try {
+      await api.aiExecuteTask(task.id);
+      onRefreshTasks();
+    } catch (err: any) {
+      alert('AI execution error: ' + err.message);
+    } finally {
+      setExecutingTaskId(null);
+    }
+  };
+
+  const handleDownloadResult = (task: any) => {
+    const result = task.aiExecutionResult?.resultDocument || 'No result available.';
+    const blob = new Blob([result], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${task.title.replace(/[^a-zA-Z0-9]/g, '_')}_AI_Result.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const filteredTasks = tasks.filter((t) => {
@@ -196,9 +226,27 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
                     {expandedTaskId === t.id ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                     <span>Subtasks</span>
                   </button>
-                  <span>
-                    {completedCount} / {t.subtasks.length} completed
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {t.subtasks.length > 0 && !isDone && (
+                      <button
+                        onClick={() => handleAIExecute(t)}
+                        disabled={executingTaskId === t.id}
+                        className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-0.5 rounded transition disabled:opacity-50"
+                      >
+                        {executingTaskId === t.id ? (
+                          <span className="animate-pulse">Executing...</span>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            AI Execute All
+                          </>
+                        )}
+                      </button>
+                    )}
+                    <span>
+                      {completedCount} / {t.subtasks.length} completed
+                    </span>
+                  </div>
                 </div>
                 {t.subtasks.map((st) => (
                   <div
@@ -249,6 +297,41 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefreshTasks }) =
                   </button>
                 </div>
               </div>
+
+              {/* AI Execution Result */}
+              {(t as any).aiExecutionResult && (
+                <div className="pt-2 border-t border-slate-800/80">
+                  <div className="bg-indigo-950/30 border border-indigo-900/50 rounded-lg p-2.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-indigo-400 text-xs font-medium">
+                        <Bot className="w-4 h-4" />
+                        AI Execution Complete
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setViewingResultId(viewingResultId === t.id ? null : t.id)}
+                          className="p-1 rounded hover:bg-indigo-900/50 text-indigo-300 hover:text-indigo-100 transition"
+                          title="View Result"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDownloadResult(t)}
+                          className="p-1 rounded hover:bg-indigo-900/50 text-indigo-300 hover:text-indigo-100 transition"
+                          title="Download Result"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    {viewingResultId === t.id && (
+                      <div className="text-[10px] text-slate-300 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono p-2 bg-slate-950/50 rounded border border-slate-800/50">
+                        {(t as any).aiExecutionResult.resultDocument}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Footer Meta */}
               <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-800/60">
