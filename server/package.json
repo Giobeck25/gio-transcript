@@ -2,7 +2,8 @@
   "name": "omniflow-server",
   "version": "1.0.0",
   "description": "OmniFlow AI Enterprise Multi-Tenant Backend",
-  "main": "src/index.ts",
+  "type": "module",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

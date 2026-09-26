@@ -24,6 +24,60 @@ calendarRouter.get('/sync-status', (req: Request, res: Response) => {
   res.json({ success: true, status });
 });
 
+// POST Connect Google Calendar
+calendarRouter.post('/connect-google', async (req: Request, res: Response) => {
+  const { tenantId, userId } = getContext(req);
+  const { accountEmail, accessToken } = req.body;
+
+  if (!accountEmail) {
+    res.status(400).json({ success: false, error: 'accountEmail is required' });
+    return;
+  }
+
+  const status = await calendarSyncService.connectGoogle(tenantId, userId, accountEmail, accessToken);
+  db.logAudit(tenantId, userId, 'GOOGLE_CALENDAR_CONNECTED', { accountEmail });
+
+  res.json({
+    success: true,
+    message: `Google Calendar successfully connected for ${accountEmail}`,
+    status,
+  });
+});
+
+// POST Connect Microsoft Outlook Calendar
+calendarRouter.post('/connect-outlook', async (req: Request, res: Response) => {
+  const { tenantId, userId } = getContext(req);
+  const { accountEmail, accessToken } = req.body;
+
+  if (!accountEmail) {
+    res.status(400).json({ success: false, error: 'accountEmail is required' });
+    return;
+  }
+
+  const status = await calendarSyncService.connectOutlook(tenantId, userId, accountEmail, accessToken);
+  db.logAudit(tenantId, userId, 'OUTLOOK_CALENDAR_CONNECTED', { accountEmail });
+
+  res.json({
+    success: true,
+    message: `Microsoft Outlook Calendar successfully connected for ${accountEmail}`,
+    status,
+  });
+});
+
+// POST Disconnect Calendar Provider
+calendarRouter.post('/disconnect', (req: Request, res: Response) => {
+  const { tenantId, userId } = getContext(req);
+  const { provider } = req.body;
+
+  if (provider === 'google' || provider === 'outlook') {
+    calendarSyncService.removeConnection(tenantId, provider);
+    db.logAudit(tenantId, userId, 'CALENDAR_DISCONNECTED', { provider });
+  }
+
+  const status = calendarSyncService.getSyncStatus(tenantId);
+  res.json({ success: true, status });
+});
+
 // POST Trigger manual 2-way sync
 calendarRouter.post('/sync-now', async (req: Request, res: Response) => {
   const { tenantId, userId } = getContext(req);

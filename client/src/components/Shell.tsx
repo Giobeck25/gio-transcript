@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Bell,
+  LogOut,
 } from 'lucide-react';
 import { Tenant, User, SyncStatus } from '../types/index.js';
 
@@ -25,6 +26,7 @@ interface ShellProps {
   currentUser: User | null;
   tenants: Tenant[];
   onSwitchTenant: (tenantId: string) => void;
+  onSignOut?: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   syncStatus: SyncStatus | null;
@@ -39,6 +41,7 @@ export const Shell: React.FC<ShellProps> = ({
   currentUser,
   tenants,
   onSwitchTenant,
+  onSignOut,
   activeTab,
   setActiveTab,
   syncStatus,
@@ -146,7 +149,7 @@ export const Shell: React.FC<ShellProps> = ({
             </button>
           )}
 
-          {/* User Profile */}
+          {/* User Profile & Sign Out */}
           <div className="flex items-center gap-2.5 pl-2 border-l border-slate-800">
             <img
               src={currentUser?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80'}
@@ -157,6 +160,15 @@ export const Shell: React.FC<ShellProps> = ({
               <p className="text-xs font-bold text-slate-100">{currentUser?.name || 'Gio Becchetti'}</p>
               <p className="text-[10px] text-slate-400 uppercase font-mono">{currentUser?.role || 'Admin'}</p>
             </div>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                title="Sign Out of Tenant"
+                className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-800 transition ml-1"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -166,7 +178,7 @@ export const Shell: React.FC<ShellProps> = ({
         {/* Desktop Sidebar Navigation */}
         <aside className="w-64 flex-shrink-0 hidden md:flex flex-col space-y-2 bg-slate-900/60 border border-slate-800/80 rounded-3xl p-4 shadow-2xl h-[calc(100vh-100px)] sticky top-20">
           <p className="text-[11px] uppercase tracking-wider font-bold text-slate-500 px-3 py-2">Workspace Navigation</p>
-          <div className="space-y-1.5 flex-1">
+          <div className="space-y-1.5 flex-1 overflow-y-auto">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -207,24 +219,31 @@ export const Shell: React.FC<ShellProps> = ({
         </aside>
 
         {/* Dynamic Main View */}
-        <main className="flex-1 min-w-0 pb-16 md:pb-0">{children}</main>
+        <main className="flex-1 min-w-0 pb-20 md:pb-0">{children}</main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800 px-3 py-2 flex justify-around">
-        {navItems.slice(0, 5).map((item) => {
+      {/* Mobile Bottom Navigation Bar (Optimized for Phone UX with horizontal swipe / scroll) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-2xl border-t border-slate-800/90 px-2 py-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar shadow-2xl">
+        {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-xl transition ${
-                isActive ? 'text-indigo-400 font-bold' : 'text-slate-500'
+              className={`flex-shrink-0 flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition ${
+                isActive ? 'text-indigo-400 bg-indigo-950/50 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Icon className="w-5 h-5" />
-              <span className="text-[10px]">{item.label.split(' ')[0]}</span>
+              <div className="relative">
+                <Icon className="w-5 h-5" />
+                {item.badge && (
+                  <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full text-[9px] font-bold text-white bg-indigo-500">
+                    {item.badge}
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] whitespace-nowrap">{item.label.split(' ')[0]}</span>
             </button>
           );
         })}

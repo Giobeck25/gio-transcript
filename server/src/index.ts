@@ -1,5 +1,8 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { authRouter } from './routes/auth.js';
 import { notesRouter } from './routes/notes.js';
@@ -11,6 +14,9 @@ import { canvasRouter } from './routes/canvas.js';
 import { geofenceRouter } from './routes/geofence.js';
 import { companionRouter } from './routes/companion.js';
 import { dashboardRouter } from './routes/dashboard.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -29,7 +35,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Mount Routes
+// Mount API Routes
 app.use('/api/auth', authRouter);
 app.use('/api/notes', notesRouter);
 app.use('/api/meetings', meetingsRouter);
@@ -40,6 +46,28 @@ app.use('/api/canvas', canvasRouter);
 app.use('/api/geofences', geofenceRouter);
 app.use('/api/companion', companionRouter);
 app.use('/api/dashboard', dashboardRouter);
+
+// Serve static frontend assets in production / standalone deployment
+const candidatePaths = [
+  path.resolve(__dirname, '../../client/dist'),
+  path.resolve(__dirname, '../client/dist'),
+  path.resolve(__dirname, '../public'),
+  path.resolve(__dirname, './public'),
+];
+
+const clientDistPath = candidatePaths.find((p) => fs.existsSync(p));
+
+if (clientDistPath) {
+  console.log(`📦 Serving static frontend from: ${clientDistPath}`);
+  app.use(express.static(clientDistPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
 
 app.listen(config.port, () => {
   console.log(`=======================================================`);

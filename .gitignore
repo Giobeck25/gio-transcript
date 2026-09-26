@@ -5,3 +5,7 @@ dist/
 .DS_Store
 *.log
 data/
+deploy.zip
+deploy_stage/
+server/public/
+

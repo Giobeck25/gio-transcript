@@ -20,6 +20,10 @@ interface GeofenceViewProps {
 }
 
 export const GeofenceView: React.FC<GeofenceViewProps> = ({ geofences, onRefreshGeofences }) => {
+  // Detect if accessing from phone / mobile screen
+  const isActualMobile = typeof window !== 'undefined' && (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768);
+  const [isPhoneMode, setIsPhoneMode] = useState<boolean>(isActualMobile);
+
   // Current user position (defaulted to Sydney coordinates)
   const [currentPos, setCurrentPos] = useState<{ lat: number; lon: number }>({
     lat: -33.8715,

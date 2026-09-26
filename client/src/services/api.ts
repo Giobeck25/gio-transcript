@@ -186,6 +186,33 @@ class ApiClient {
     return await res.json();
   }
 
+  public async connectGoogle(accountEmail: string, accessToken?: string): Promise<{ status: SyncStatus }> {
+    const res = await fetch('/api/calendar/connect-google', {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ accountEmail, accessToken }),
+    });
+    return await res.json();
+  }
+
+  public async connectOutlook(accountEmail: string, accessToken?: string): Promise<{ status: SyncStatus }> {
+    const res = await fetch('/api/calendar/connect-outlook', {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ accountEmail, accessToken }),
+    });
+    return await res.json();
+  }
+
+  public async disconnectCalendar(provider: 'google' | 'outlook'): Promise<{ status: SyncStatus }> {
+    const res = await fetch('/api/calendar/disconnect', {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ provider }),
+    });
+    return await res.json();
+  }
+
   public async createCalendarEvent(payload: Partial<CalendarEvent>): Promise<CalendarEvent> {
     const res = await fetch('/api/calendar/events', {
       method: 'POST',

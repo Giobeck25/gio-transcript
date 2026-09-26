@@ -10,6 +10,7 @@ import { CanvasView } from './components/CanvasView.js';
 import { TasksView } from './components/TasksView.js';
 import { GeofenceView } from './components/GeofenceView.js';
 import { CompanionWidget } from './components/CompanionWidget.js';
+import { AuthGate } from './components/AuthGate.js';
 import { Tenant, User, Note, Meeting, Proposal, CalendarEvent, Task, CanvasSchema, Geofence, SyncStatus } from './types/index.js';
 import { X, Copy, Download, FileText } from 'lucide-react';
 
@@ -17,6 +18,9 @@ export function App() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return !!localStorage.getItem('omniflow_auth_token');
+  });
   const [activeTab, setActiveTab] = useState<string>('home');
 
   // Workspace Data State
@@ -38,19 +42,33 @@ export function App() {
   });
 
   // Load Tenants & Initialize Session
+  const loadTenantsList = async () => {
+    try {
+      const loadedTenants = await api.getTenants();
+      setTenants(loadedTenants);
+      return loadedTenants;
+    } catch (err) {
+      console.warn('Tenant load error:', err);
+      return [];
+    }
+  };
+
   useEffect(() => {
     const initApp = async () => {
       try {
-        const loadedTenants = await api.getTenants();
-        setTenants(loadedTenants);
+        const loadedTenants = await loadTenantsList();
         if (loadedTenants.length > 0) {
-          const defaultTenant = loadedTenants[0];
-          setCurrentTenant(defaultTenant);
-          const users = await api.getUsers(defaultTenant.id);
-          const defaultUser = users[0] || null;
-          setCurrentUser(defaultUser);
-          if (defaultUser) {
-            api.setSession(defaultTenant.id, defaultUser.id);
+          const savedTenantId = localStorage.getItem('omniflow_tenant_id');
+          const activeTenant = loadedTenants.find((t) => t.id === savedTenantId) || loadedTenants[0];
+          setCurrentTenant(activeTenant);
+
+          const users = await api.getUsers(activeTenant.id);
+          const savedUserId = localStorage.getItem('omniflow_user_id');
+          const activeUser = users.find((u) => u.id === savedUserId) || users[0] || null;
+          setCurrentUser(activeUser);
+
+          if (activeUser) {
+            api.setSession(activeTenant.id, activeUser.id);
           }
         }
       } catch (err) {
@@ -119,6 +137,14 @@ export function App() {
     }
   };
 
+  const handleSignOut = () => {
+    localStorage.removeItem('omniflow_auth_token');
+    localStorage.removeItem('omniflow_tenant_id');
+    localStorage.removeItem('omniflow_user_id');
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+  };
+
   const handleApproveProposal = async (proposalId: string) => {
     await api.approveProposal(proposalId);
     refreshAllData();
@@ -133,6 +159,26 @@ export function App() {
     setDocumentModal({ open: true, title, markdown });
   };
 
+  // Enforce Multi-Tenant Authentication Gate before showing Dashboard
+  if (!isAuthenticated || !currentTenant) {
+    return (
+      <AuthGate
+        tenants={tenants}
+        onAuthenticated={(tenant, user, token) => {
+          localStorage.setItem('omniflow_auth_token', token);
+          localStorage.setItem('omniflow_tenant_id', tenant.id);
+          localStorage.setItem('omniflow_user_id', user.id);
+          setCurrentTenant(tenant);
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+          api.setSession(tenant.id, user.id);
+          refreshAllData();
+        }}
+        onRefreshTenants={loadTenantsList}
+      />
+    );
+  }
+
   const radar = briefData?.brief?.preMeetingRadar;
 
   return (
@@ -141,6 +187,7 @@ export function App() {
       currentUser={currentUser}
       tenants={tenants}
       onSwitchTenant={handleSwitchTenant}
+      onSignOut={handleSignOut}
       activeTab={activeTab}
       setActiveTab={setActiveTab}
       syncStatus={syncStatus}
