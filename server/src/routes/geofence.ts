@@ -76,3 +76,16 @@ geofenceRouter.put('/:id/toggle', (req: Request, res: Response) => {
   db.saveGeofence(fence);
   res.json({ success: true, geofence: fence });
 });
+
+// DELETE geofence
+geofenceRouter.delete('/:id', (req: Request, res: Response) => {
+  const { tenantId, userId } = getContext(req);
+  const geofenceId = String(req.params.id);
+  const success = db.deleteGeofence(tenantId, geofenceId);
+  if (!success) {
+    res.status(404).json({ success: false, error: 'Geofence not found' });
+    return;
+  }
+  db.logAudit(tenantId, userId, 'GEOFENCE_DELETED', { geofenceId });
+  res.json({ success: true });
+});

@@ -260,6 +260,7 @@ export function App() {
         <GeofenceView
           geofences={geofences}
           onRefreshGeofences={refreshAllData}
+          onRefreshTasks={refreshAllData}
         />
       )}
 

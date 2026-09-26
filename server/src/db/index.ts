@@ -484,6 +484,16 @@ class DatabaseService {
     return geofence;
   }
 
+  public deleteGeofence(tenantId: string, geofenceId: string): boolean {
+    const initialLen = this.data.geofences.length;
+    this.data.geofences = this.data.geofences.filter((g) => !(g.tenantId === tenantId && g.id === geofenceId));
+    if (this.data.geofences.length !== initialLen) {
+      this.saveLocalData();
+      return true;
+    }
+    return false;
+  }
+
   public logAudit(tenantId: string, userId: string, action: string, details: any) {
     this.data.auditLogs.unshift({
       id: 'audit-' + Date.now(),

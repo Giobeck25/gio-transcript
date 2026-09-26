@@ -302,6 +302,15 @@ class ApiClient {
     return data.geofence;
   }
 
+  public async deleteGeofence(geofenceId: string): Promise<boolean> {
+    const res = await fetch(`/api/geofences/${geofenceId}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    const data = await res.json();
+    return data.success;
+  }
+
   public async checkLocation(latitude: number, longitude: number): Promise<any> {
     const res = await fetch('/api/geofences/check-location', {
       method: 'POST',
